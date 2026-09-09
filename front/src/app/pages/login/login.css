@@ -241,6 +241,33 @@
   margin: 0;
 }
 
+.divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 10px 0;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #ddd;
+}
+
+.divider span {
+  padding: 0 10px;
+  color: #888;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.google-btn-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
 @media (max-width: 900px) {
   .login-left { display: none; }
   .login-right { width: 100%; min-width: unset; }
