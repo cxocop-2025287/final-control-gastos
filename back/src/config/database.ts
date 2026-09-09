@@ -54,6 +54,7 @@ class DatabaseService {
         password VARCHAR(255) NOT NULL,
         role VARCHAR(10) NOT NULL DEFAULT 'USER' CHECK (role IN ('USER', 'ADMIN')),
         is_active BOOLEAN NOT NULL DEFAULT true,
+        google_id VARCHAR(255) UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -118,6 +119,7 @@ class DatabaseService {
 
     try {
       await this.pool!.query(createUsersTable);
+      await this.pool!.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;');
       await this.pool!.query(createIncomesTable);
       await this.pool!.query(createIndexes);
       await this.pool!.query(updateTrigger);
