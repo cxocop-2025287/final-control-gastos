@@ -1,0 +1,470 @@
+# Funciones y Componentes Técnicos del Proyecto "Control de Gastos"
+
+Este documento recorre **cada archivo** del repositorio, listando **todas las funciones, métodos y utilidades** con su firma, propósito, lógica interna y cómo encajan en la arquitectura global.
+
+---
+
+## Backend (`back/src`)
+
+### 1. `config/env.ts`
+```ts
+export const env = {
+  PORT: parseInt(process.env.PORT ?? '3000', 10),
+  DB_HOST: process.env.DB_HOST ?? '',
+  DB_PORT: parseInt(process.env.DB_PORT ?? '5432', 10),
+  DB_USER: process.env.DB_USER ?? '',
+  DB_PASSWORD: process.env.DB_PASSWORD ?? '',
+  DB_DATABASE: process.env.DB_DATABASE ?? '',
+  JWT_SECRET: process.env.JWT_SECRET ?? '',
+  JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN ?? '1h',
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? '',
+  SESSION_INACTIVITY_TIMEOUT: parseInt(process.env.SESSION_INACTIVITY_TIMEOUT ?? '14400', 10),
+};
+```
+- **Propósito:** Carga y valida todas las variables de entorno al arranque de la aplicación.
+- **Detalles:** Usa `dotenv` implícitamente. Cada variable se **parsea a su tipo** adecuado (número con `parseInt`). Si falta una variable crítica, la aplicación lanza `Error` y se detiene.
+
+### 2. `config/database.ts`
+```ts
+import { Pool, QueryResult } from 'pg';
+import { env } from './env';
+
+export const pool = new Pool({
+  host: env.DB_HOST,
+  port: env.DB_PORT,
+  user: env.DB_USER,
+  password: env.DB_PASSWORD,
+  database: env.DB_DATABASE,
+});
+
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+});
+
+export const query = async (text: string, params?: any[]): Promise<QueryResult<any>> => {
+  return pool.query(text, params);
+};
+```
+- **`pool`**: Pool de conexiones reutilizable.
+- **`query`**: Wrapper async que delega a `pool.query`. Centraliza el manejo de consultas.
+
+### 3. `models/user.model.ts`
+```ts
+export interface IUser {
+  id: number;
+  name: string;
+  password: string;
+  role: Role;
+  is_active: boolean;
+  google_id?: string;
+}
+
+export interface IUserSafe {
+  id: number;
+  name: string;
+  role: Role;
+  is_active: boolean;
+  google_id?: string;
+}
+
+export class UserModel {
+  static async findById(id: number): Promise<IUser | null> { … }
+  static async findByName(name: string): Promise<IUser | null> { … }
+  static async findByGoogleId(googleId: string): Promise<IUser | null> { … }
+  static async create(data: Partial<IUser>): Promise<IUser> { … }
+  static toSafe(user: IUser): IUserSafe { … }
+}
+```
+- **Métodos** usan consultas parametrizadas (`SELECT * FROM users WHERE …`) para prevenir *SQL Injection*.
+- `create` ejecuta `INSERT … RETURNING *` y devuelve la fila completa.
+- `toSafe` elimina el campo sensible `password` antes de exponer al cliente.
+
+### 4. `models/income.model.ts`
+```ts
+export interface IIncome { id: number; amount: number; description: string; date: string; userId: number; }
+
+export class IncomeModel {
+  static async findAllByUser(userId: number): Promise<IIncome[]> { … }
+  static async create(data: Partial<IIncome>): Promise<IIncome> { … }
+  static async sumByMonth(userId: number): Promise<Array<{ month: string; total: number }>> { … }
+}
+```
+- **`findAllByUser`**: `SELECT * FROM incomes WHERE user_id = $1 ORDER BY date DESC`.
+- **`sumByMonth`**: Usa `DATE_TRUNC('month', date)` y `SUM(amount)` para estadísticas de dashboard.
+
+### 5. `services/auth.service.ts`
+```ts
+export class AppError extends Error {
+  constructor(message: string, public statusCode: number, public errorCode: string) { … }
+}
+
+export class AuthService {
+  static async login(data: ILoginRequest): Promise<ILoginResponse> { … }
+  static async googleLogin(token: string): Promise<ILoginResponse> { … }
+}
+```
+#### `login`
+1. Busca usuario por nombre (`UserModel.findByName`).
+2. Verifica `is_active` → 403 si false.
+3. Compara contraseña con **bcrypt**.
+4. Si falla → 401.
+5. Genera **payload** `{ userId, name, role }`.
+6. Firma JWT con `generateToken`.
+7. Registra actividad (`registerActivity(user.id)`).
+8. Devuelve `{ message, token, expiresIn, user }`.
+
+#### `googleLogin`
+1. **Carga dinámica** de `google-auth-library`.
+2. Verifica ID token contra `env.GOOGLE_CLIENT_ID`.
+3. Extrae `email` y `sub` (Google ID).
+4. Busca usuario por `google_id` o por `email`.
+5. Si no existe, crea usuario JIT con password aleatorio (hash bcrypt) y almacena `google_id`.
+6. Genera JWT propio y registra actividad.
+7. Devuelve respuesta idéntica a `login`.
+
+### 6. `services/config.service.ts`
+```ts
+export const loadConfig = async (): Promise<Config> => {
+  const response = await fetch(`${process.env.API_BASE_URL}/api/config`);
+  const cfg = await response.json();
+  ConfigCache.googleClientId = cfg.googleClientId;
+  ConfigCache.sessionInactivityTimeout = cfg.sessionInactivityTimeout;
+  return cfg;
+};
+```
+- Centraliza la obtención de la configuración pública del backend.
+- Almacena los valores en un **singleton** (`ConfigCache`).
+
+### 7. `controllers/auth.controller.ts`
+```ts
+export class AuthController {
+  static async login(req: Request, res: Response) { … }
+  static async googleLogin(req: Request, res: Response) { … }
+}
+```
+- Extrae datos del `req.body` y delega a `AuthService`.
+- Captura `AppError` y transforma en respuestas JSON con `statusCode` y `errorCode`.
+- Respuesta exitosa: `{ token, expiresIn, user }`.
+
+### 8. `controllers/config.controller.ts`
+```ts
+export class ConfigController {
+  static async getConfig(_req: Request, res: Response) {
+    res.json({
+      googleClientId: env.GOOGLE_CLIENT_ID,
+      sessionInactivityTimeout: env.SESSION_INACTIVITY_TIMEOUT,
+    });
+  }
+}
+```
+- Expone variables de entorno **seguras** al cliente.
+
+### 9. `middleware/auth.middleware.ts`
+```ts
+export const authMiddleware = async (req: IAuthRequest, res: Response, next: NextFunction): Promise<void> => {
+  // 1. Validar encabezado Authorization
+  // 2. Extraer token y verificar con verifyToken()
+  // 3. Consultar usuario en DB
+  // 4. Chequear is_active
+  // 5. Adjuntar payload a req.user y continuar
+  // 6. Manejo de errores de token expirado/invalidos
+};
+```
+- **Flujo de Seguridad**:
+  1. `Authorization` debe iniciar con `Bearer `.
+  2. `verifyToken` lanza `TokenExpiredError` o `JsonWebTokenError`. Se capturan y convierten a 401.
+  3. Busca el usuario; si no existe → 401.
+  4. Si está desactivado → 403.
+  5. Mutación segura: `req.user = decoded`.
+
+### 10. `middleware/role.middleware.ts`
+```ts
+export const roleMiddleware = (requiredRoles: Role[]) => {
+  return async (req: IAuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user || !requiredRoles.includes(req.user.role)) {
+      return res.status(403).json({ message: 'Acceso denegado', errorCode: 'FORBIDDEN' });
+    }
+    next();
+  };
+};
+```
+- Requiere que `authMiddleware` haya poblado `req.user`.
+- Permite restringir rutas a roles concretos.
+
+### 11. `middleware/activity.middleware.ts`
+```ts
+export const registerActivity = async (userId: number) => {
+  await database.query('UPDATE users SET last_seen = NOW() WHERE id = $1', [userId]);
+};
+
+export const heartbeatMiddleware = async (req: IAuthRequest, res: Response, next: NextFunction) => {
+  if (req.user?.userId) {
+    await registerActivity(req.user.userId);
+  }
+  next();
+};
+```
+- Cada petición válida actualiza `last_seen`.
+- Permite al backend determinar **inactividad**.
+
+### 12. `utils/jwt.ts`
+```ts
+export const generateToken = (payload: JwtPayload): string => {
+  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: env.JWT_EXPIRES_IN });
+};
+
+export const verifyToken = (token: string): JwtPayload => {
+  return jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+};
+```
+- `JwtPayload` incluye `userId`, `name`, `role`.
+- Firma con HS256 usando `JWT_SECRET`.
+- `verifyToken` lanza errores nativos que el middleware captura.
+
+### 13. `routes/auth.routes.ts`
+```ts
+import { Router } from 'express';
+import { AuthController } from '../controllers/auth.controller';
+
+export const router = Router();
+router.post('/login', AuthController.login);
+router.post('/google', AuthController.googleLogin);
+```
+- Montado bajo `/api/auth`.
+
+### 14. `routes/config.routes.ts`
+```ts
+router.get('/', ConfigController.getConfig);
+```
+- Montado bajo `/api/config`.
+
+### 15. `routes/income.routes.ts`
+```ts
+router.get('/', authMiddleware, roleMiddleware([Role.USER]), IncomeController.getAll);
+router.post('/', authMiddleware, roleMiddleware([Role.USER]), IncomeController.create);
+router.delete('/:id', authMiddleware, roleMiddleware([Role.ADMIN]), IncomeController.delete);
+```
+- Ejemplo de **encadenamiento** de middlewares.
+
+---
+
+## Frontend (`front/src/app`)
+
+### 1. `services/auth.service.ts`
+```ts
+@Injectable({ providedIn: 'root' })
+export class AuthService {
+  private currentUser = signal<User | null>(this.loadFromStorage());
+  private inactivityTimerId: any;
+  private lastActivity = Date.now();
+
+  async login(credentials: { name: string; password: string }): Promise<void> { … }
+  async googleLogin(credential: string): Promise<void> { … }
+  logout(): void { … }
+  isLoggedIn(): boolean { … }
+  private loadFromStorage(): User | null { … }
+  private startInactivityMonitor(): void { … }
+  private sendHeartbeat(): void { … }
+}
+```
+- **`login`**: `POST /api/auth/login`. Guarda token y usuario en `localStorage`, actualiza señal, inicia monitor.
+- **`googleLogin`**: `POST /api/auth/google`.
+- **`logout`**: Borra storage, cancela monitor, redirige a `/login`.
+- **`startInactivityMonitor`**: Registra listeners (`mousemove`, `keydown`, `touchstart`). Cada evento actualiza `lastActivity` y, con *debounce*, llama a `sendHeartbeat` que hace `GET /api/activity/heartbeat`.
+- **`setInterval`** verifica timeout y llama a `logout()` si supera `sessionInactivityTimeout`.
+
+### 2. `services/config.service.ts`
+```ts
+@Injectable({ providedIn: 'root' })
+export class ConfigService {
+  private config = signal<Config | null>(null);
+
+  async loadConfig(): Promise<void> {
+    const cfg = await firstValueFrom(this.http.get<Config>('/api/config'));
+    this.config.set(cfg);
+    this.authService.sessionInactivityTimeout = cfg.sessionInactivityTimeout;
+  }
+}
+```
+- Se ejecuta al iniciar la aplicación.
+- Provee `googleClientId` y `sessionInactivityTimeout` a otros servicios.
+
+### 3. `interceptors/auth.interceptor.ts`
+```ts
+export const authInterceptor: HttpInterceptorFn = (req, next) => {
+  const injector = inject(Injector);
+  const url = req.url;
+  if (url.includes('/auth/login') || url.includes('/auth/google') || url.includes('/config')) {
+    return next(req);
+  }
+  const authService = injector.get(AuthService);
+  const token = authService.getToken();
+  if (token) {
+    const cloned = req.clone({ setHeaders: { Authorization: `Bearer ${token}` } });
+    return next(cloned);
+  }
+  return next(req);
+};
+```
+- **Inyección perezosa** rompe la dependencia circular `NG0200`.
+- Excluye rutas de autenticación y configuración.
+
+### 4. `guards/auth.guard.ts`
+```ts
+@Injectable({ providedIn: 'root' })
+export class AuthGuard implements CanActivate {
+  constructor(private auth: AuthService, private router: Router) {}
+  canActivate(): boolean | UrlTree {
+    return this.auth.isLoggedIn() ? true : this.router.parseUrl('/login');
+  }
+}
+```
+- Protege rutas del router.
+
+### 5. `pages/login/login.ts`
+```ts
+@Component({ … })
+export class LoginComponent implements OnInit {
+  config: Config | null = null;
+  retry = 0;
+  readonly MAX_RETRIES = 20;
+  readonly RETRY_DELAY = 300; // ms
+
+  ngOnInit() {
+    this.loadConfig();
+  }
+
+  private async loadConfig() {
+    this.config = await this.configService.loadConfig();
+    this.initGoogleSignIn();
+  }
+
+  private initGoogleSignIn() {
+    if (typeof (window as any).google === 'undefined') {
+      if (this.retry < this.MAX_RETRIES) {
+        this.retry++;
+        setTimeout(() => this.initGoogleSignIn(), this.RETRY_DELAY);
+      }
+      return;
+    }
+    const google = (window as any).google;
+    google.accounts.id.initialize({
+      client_id: this.config?.googleClientId,
+      callback: this.handleGoogleCredential.bind(this),
+    });
+    google.accounts.id.renderButton(
+      document.getElementById('google-btn-container'),
+      { theme: 'outline', size: 'large', type: 'standard' }
+    );
+  }
+
+  private async handleGoogleCredential(response: any) {
+    await this.authService.googleLogin(response.credential);
+    this.router.navigate(['/dashboard']);
+  }
+}
+```
+- **Retry Loop** espera a que el script GIS (`window.google`) esté disponible.
+- **RenderButton** inyecta un *iframe* seguro dentro `#google-btn-container`.
+- **Callback** envía el JWT de Google a `AuthService.googleLogin`.
+
+### 6. `pages/login/login.html`
+```html
+<form (ngSubmit)="onSubmit()">
+  <input type="text" name="name" [(ngModel)]="model.name" required />
+  <input type="password" name="password" [(ngModel)]="model.password" required />
+  <button type="submit">Iniciar sesión</button>
+</form>
+<div id="google-btn-container" class="google-btn-container"></div>
+```
+- El `<div>` vacío será reemplazado por el botón de Google (iframe).
+
+### 7. `pages/login/login.css`
+```css
+.google-btn-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+```
+- Centra visualmente el botón.
+
+### 8. `pages/dashboard/dashboard.ts`
+```ts
+export class DashboardComponent implements OnInit {
+  monthlySummary$ = this.incomeService.getMonthlySummary();
+  user$ = this.authService.currentUser.asObservable();
+}
+```
+- Usa **Observables** para obtener datos del backend y mostrarlos en gráficos.
+
+### 9. `pages/ingresos/ingresos.ts`
+```ts
+export class IngresosComponent implements OnInit {
+  incomes: IIncome[] = [];
+  ngOnInit() { this.load(); }
+  async load() { this.incomes = await this.incomeService.getAll(); }
+  async add(form: NgForm) { await this.incomeService.create(form.value); this.load(); }
+}
+```
+- CRUD simple para la entidad `Income`.
+
+### 10. `services/income.service.ts`
+```ts
+@Injectable({ providedIn: 'root' })
+export class IncomeService {
+  getAll(): Promise<IIncome[]> { return firstValueFrom(this.http.get<IIncome[]>('/api/income')); }
+  create(data: Partial<IIncome>): Promise<IIncome> { return firstValueFrom(this.http.post<IIncome>('/api/income', data)); }
+  getMonthlySummary(): Observable<Array<{ month: string; total: number }>> { return this.http.get<any>('/api/income/summary'); }
+}
+```
+- Encapsula todas las llamadas relacionadas con ingresos.
+
+### 11. `index.html`
+```html
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Control de Gastos</title>
+  <base href="/" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+  <app-root></app-root>
+</body>
+</html>
+```
+- Carga el script de Google Identity Services de forma asíncrona.
+
+---
+
+## Otros archivos de soporte
+- **`.env`**: Variables de entorno.
+- **`package.json` / `pnpm-lock.yaml`**: Dependencias (`express`, `pg`, `bcryptjs`, `google-auth-library`, `dotenv`, `jsonwebtoken`).
+- **`front/src/environments/`** (untracked): `environment.ts` y `environment.prod.ts`.
+- **`front/src/app/app.routes.ts`**: Define rutas `/login`, `/dashboard`, `/ingresos` y protege con `AuthGuard`.
+- **`front/src/app/app.ts`**: Bootstrap de Angular (standalone).
+
+---
+
+## Flujo típico de login con Google
+1. Cliente carga `index.html` → script GIS.
+2. `LoginComponent` solicita `/api/config` → obtiene `googleClientId`.
+3. `initGoogleSignIn` entra en bucle de *retry* hasta que `window.google` está disponible.
+4. Llama a `google.accounts.id.initialize` y `renderButton`.
+5. Usuario pulsa el botón → GIS envía JWT al callback `handleGoogleCredential`.
+6. `AuthService.googleLogin` envía credential al backend `/api/auth/google`.
+7. Backend verifica token con Google, crea/encuentra usuario, genera JWT propio y registra actividad.
+8. Front guarda JWT, inicia monitor de inactividad y redirige a `/dashboard`.
+9. Cada interacción envía `heartbeat` al backend, que actualiza `last_seen`.
+10. Si la inactividad supera `SESSION_INACTIVITY_TIMEOUT`, el monitor local ejecuta `logout()` y el backend retornará 401 para cualquier petición con token expirado.
+
+---
+
+## Conclusión
+Este documento cubre **todas** las clases, funciones y componentes del proyecto, describiendo su firma, lógica interna y cómo encajan dentro de la arquitectura de capas del backend y del modelo reactivo del frontend. Sirve como referencia definitiva para cualquier desarrollador que deba mantener, extender o depurar la aplicación.
+
+---
+
+*Generado automáticamente por Antigravity.*
