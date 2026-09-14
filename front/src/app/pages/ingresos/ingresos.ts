@@ -47,6 +47,13 @@ export class IngresosComponent implements OnInit, OnDestroy {
   formMonto: number | null = null;
 
   incomeCategories = INCOME_CATEGORIES;
+  /** Fecha máxima permitida en los calendarios (hoy, no se permite futuro) */
+  readonly hoy: string = (() => {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  })();
   private subscriptions: Subscription[] = [];
   private sessionSub?: Subscription;
 
@@ -302,7 +309,7 @@ export class IngresosComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         console.error('Error al eliminar:', err);
-        this.loadError = 'Error al eliminar el ingreso.';
+        this.loadError = err.error?.message || 'Error al eliminar el ingreso.';
       },
     });
   }
@@ -316,19 +323,29 @@ export class IngresosComponent implements OnInit, OnDestroy {
     this.authService.confirmSessionExpired();
   }
 
-  onNavClick(item: string): void {
-    if (item !== 'Home' && item !== 'Ingresos') return;
+onNavClick(item: string): void {
+  if (item !== 'Home' && item !== 'Gastos' && item !== 'Ingresos' && item !== 'Deudas' && item !== 'Resumen') return;
 
-    if (item === 'Home') {
-      this.router.navigate(['/app']);
-      return;
-    }
-    if (item === 'Ingresos') {
-      return;
-    }
-    this.activeNav = item;
+  if (item === 'Home') {
+    this.router.navigate(['/app']);
+    return;
   }
-
+  if (item === 'Gastos') {
+    this.router.navigate(['/gastos']);
+    return;
+  }
+  if (item === 'Deudas') {
+    this.router.navigate(['/deudas']);
+    return;
+  }
+  if (item === 'Resumen') {
+    this.router.navigate(['/resumen']);
+    return;
+  }
+  if (item === 'Ingresos') {
+    return; // ya estamos aquí
+  }
+}
   formatCurrency(value: number): string {
     const num = typeof value === 'number' ? value : parseFloat(String(value)) || 0;
     return 'Q' + num.toFixed(2);
