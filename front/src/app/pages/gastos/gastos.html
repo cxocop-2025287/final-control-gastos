@@ -1,0 +1,339 @@
+<div class="ingresos-page">
+
+  <!-- NAVBAR -->
+  <nav class="dash-nav">
+    <div class="nav-brand">
+      <img src="img/LogoTrasparente.png" alt="Logo" class="nav-logo-img" />
+      <span class="nav-brand-text">Gestor de Gastos</span>
+    </div>
+
+    <div class="nav-menu">
+      <ng-container *ngFor="let item of ['Home', 'Gastos', 'Ingresos', 'Deudas', 'Resumen']; let last = last">
+        <span
+          class="nav-item"
+          [class.active]="activeNav === item"
+[class.disabled]="item !== 'Home' && item !== 'Gastos' && item !== 'Ingresos' && item !== 'Deudas' && item !== 'Resumen'"          (click)="onNavClick(item)"
+        >{{ item }}</span>
+        <span class="nav-divider" *ngIf="!last"></span>
+      </ng-container>
+    </div>
+
+    <button class="nav-logout" (click)="onLogout()">
+      Cerrar<br/>Sesión
+    </button>
+  </nav>
+
+  <div class="load-error" *ngIf="loadError && !loading">{{ loadError }}</div>
+
+  <div class="page-loading" *ngIf="loading">
+    <div class="spinner"></div>
+    <span class="loading-text">Cargando datos...</span>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <main class="ing-main" [class.is-loading]="loading">
+
+    <!-- Hero Header -->
+    <div class="ing-hero">
+      <div class="hero-shapes">
+        <span class="hero-shape hs-1"></span>
+        <span class="hero-shape hs-2"></span>
+        <span class="hero-shape hs-3"></span>
+      </div>
+      <div class="hero-content">
+        <div class="hero-text">
+          <h1 class="ing-title">Gastos</h1>
+          <p class="ing-subtitle">Administre y revise todos sus egresos registrados</p>
+        </div>
+        <button class="btn-new" (click)="openCreate()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Nuevo gasto
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="ing-summary">
+      <div class="summary-card sc-total">
+        <div class="sc-icon-wrap">
+          <div class="sc-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="1" x2="12" y2="23"/>
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+          </div>
+        </div>
+        <div class="sc-info">
+          <span class="sc-label">Total gastado</span>
+          <span class="sc-value">{{ formatCurrency(totalMes) }}</span>
+        </div>
+      </div>
+      <div class="summary-card sc-count">
+        <div class="sc-icon-wrap">
+          <div class="sc-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 1 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+          </div>
+        </div>
+        <div class="sc-info">
+          <span class="sc-label">Gastos</span>
+          <span class="sc-value">{{ cantidadGastos }}</span>
+        </div>
+      </div>
+      <div class="summary-card sc-promedio">
+        <div class="sc-icon-wrap">
+          <div class="sc-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </div>
+        </div>
+        <div class="sc-info">
+          <span class="sc-label">Promedio</span>
+          <span class="sc-value">{{ cantidadGastos > 0 ? formatCurrency(totalMes / cantidadGastos) : 'Q0.00' }}</span>
+        </div>
+      </div>
+      <div class="summary-card sc-disponible">
+        <div class="sc-icon-wrap">
+          <div class="sc-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="2" x2="12" y2="22"/>
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="12" y1="12" x2="12.01" y2="12"/>
+            </svg>
+          </div>
+        </div>
+        <div class="sc-info">
+          <span class="sc-label">Disponible</span>
+          <span class="sc-value">{{ formatCurrency(saldoDisponible) }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Date Filter -->
+    <div class="date-filter-bar">
+      <div class="date-modes">
+        <button class="mode-btn" [class.active]="dateFilter === 'dia'" (click)="onFilterChange('dia')">Día</button>
+        <button class="mode-btn" [class.active]="dateFilter === 'mes'" (click)="onFilterChange('mes')">Mes</button>
+        <button class="mode-btn" [class.active]="dateFilter === 'anio'" (click)="onFilterChange('anio')">Año</button>
+        <button class="mode-btn" [class.active]="dateFilter === 'todo'" (click)="onFilterChange('todo')">Todo</button>
+      </div>
+      <div class="date-picker-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+        <input
+          type="date"
+          class="date-input"
+          [(ngModel)]="selectedDate"
+          [max]="hoy"
+          (change)="onDateChange()"
+        />
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="ing-table-container">
+      <div class="table-toolbar">
+        <div class="toolbar-left">
+          <span class="toolbar-title">Historial de gastos</span>
+          <span class="toolbar-count">{{ filteredGastos.length }} registros</span>
+        </div>
+        <div class="toolbar-right">
+          <div class="toolbar-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input
+              type="text"
+              placeholder="Buscar..."
+              class="search-input"
+              [(ngModel)]="searchTerm"
+              (ngModelChange)="onSearch()"
+            />
+          </div>
+          <div class="toolbar-filters">
+            <span
+              class="filter-chip"
+              [class.active]="selectedCategoria === null"
+              (click)="onCategoriaClick(null)"
+            >Todos</span>
+            <span
+              class="filter-chip"
+              *ngFor="let cat of categoriasFiltro"
+              [class.active]="selectedCategoria === cat"
+              (click)="onCategoriaClick(cat)"
+            >{{ cat }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="table-inner">
+        <div class="table-row table-header-row">
+          <div class="table-cell header-cell">#</div>
+          <div class="table-cell header-cell">Fecha</div>
+          <div class="table-cell header-cell">Descripción</div>
+          <div class="table-cell header-cell">Categoría</div>
+          <div class="table-cell header-cell">Monto</div>
+          <div class="table-cell header-cell">Acciones</div>
+        </div>
+        <div class="table-row table-data-row" *ngFor="let gas of filteredGastos; let i = index">
+          <div class="table-cell cell-index">{{ i + 1 }}</div>
+          <div class="table-cell cell-date">{{ formatDate(gas.fecha) }}</div>
+          <div class="table-cell cell-desc">{{ gas.descripcion }}</div>
+          <div class="table-cell">
+            <span class="cat-badge">{{ gas.categoria }}</span>
+          </div>
+          <div class="table-cell cell-amount amount-gasto">{{ formatCurrency(gas.monto) }}</div>
+          <div class="table-cell cell-actions">
+            <button
+              class="row-btn btn-edit"
+              [title]="gas.debt_id ? 'Editar desde el módulo de Deudas' : 'Editar'"
+              [disabled]="!!gas.debt_id"
+              [style.opacity]="gas.debt_id ? 0.4 : 1"
+              [style.cursor]="gas.debt_id ? 'not-allowed' : 'pointer'"
+              (click)="openEdit(gas)"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+              </svg>
+            </button>
+            <button class="row-btn btn-delete" title="Eliminar" (click)="onDelete(gas)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                <line x1="10" y1="11" x2="10" y2="17"/>
+                <line x1="14" y1="11" x2="14" y2="17"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="table-row table-empty" *ngIf="!filteredGastos.length">
+          <div class="table-cell cell-empty">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
+            <span class="empty-text">No hay gastos para mostrar</span>
+          </div>
+        </div>
+      </div>
+      <div class="table-footer">
+        <span class="footer-text">Mostrando {{ filteredGastos.length }} de {{ gastos.length }} gastos</span>
+        <div class="footer-total">
+          <span class="footer-label">Total gastado:</span>
+          <span class="footer-value">{{ formatCurrency(totalMes) }}</span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- MODAL CREAR / EDITAR GASTO -->
+  <div class="modal-overlay" *ngIf="showModal" (click)="saving ? null : onCancel()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title">{{ editingId !== null ? 'Editar gasto' : 'Nuevo gasto' }}</h3>
+        <button class="modal-close" (click)="onCancel()" [disabled]="saving">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="balance-hint" *ngIf="editingId === null">
+          Disponible para gastar: <strong>{{ formatCurrency(saldoDisponible) }}</strong>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="formFecha">Fecha</label>
+          <input
+            id="formFecha"
+            type="date"
+            class="form-input"
+            [(ngModel)]="formFecha"
+            [max]="hoy"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="formDescripcion">Descripción</label>
+          <input
+            id="formDescripcion"
+            type="text"
+            class="form-input"
+            placeholder="Ej: Compra de supermercado"
+            [(ngModel)]="formDescripcion"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="formCategoria">Categoría</label>
+          <select
+            id="formCategoria"
+            class="form-input form-select"
+            [(ngModel)]="formCategoria"
+            [disabled]="saving"
+          >
+            <option *ngFor="let cat of categoriasFormulario" [ngValue]="cat">{{ cat }}</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="formMonto">Monto (Q)</label>
+          <input
+            id="formMonto"
+            type="number"
+            min="0"
+            step="0.01"
+            class="form-input"
+            placeholder="0.00"
+            [(ngModel)]="formMonto"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-error" *ngIf="formError">{{ formError }}</div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="onCancel()" [disabled]="saving">Cancelar</button>
+        <button class="btn-save" (click)="onSave()" [disabled]="saving">
+          <span *ngIf="saving" class="btn-spinner"></span>
+          {{ saving ? 'Guardando...' : (editingId !== null ? 'Guardar cambios' : 'Agregar') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Session Expired Modal -->
+  <div class="session-expired-overlay" *ngIf="showSessionExpired">
+    <div class="session-expired-modal">
+      <div class="modal-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-yellow-mustard)" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+      </div>
+      <h2>Sesión expirada</h2>
+      <p>Su sesión ha terminado por inactividad. Inicie sesión nuevamente para continuar.</p>
+      <button class="btn-accept" (click)="onAcceptSessionExpired()">Aceptar</button>
+    </div>
+  </div>
+
+</div>
