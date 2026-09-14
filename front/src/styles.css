@@ -56,8 +56,7 @@ button {
 
 input {
   font-family: inherit;
-  /* Oculta la línea vertical (caret) que aparece al escribir */
-  caret-color: transparent;
+  caret-color: var(--color-dark-green);
 }
 
 ::-webkit-scrollbar {
