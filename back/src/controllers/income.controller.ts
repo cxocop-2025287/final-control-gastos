@@ -17,7 +17,6 @@ export class IncomeController {
       if (fechaHasta && typeof fechaHasta === 'string') {
         filters.fechaHasta = fechaHasta.split('T')[0];
       }
-      
       if (categoria && typeof categoria === 'string') {
         const categoriaStr = categoria as string;
         if (INCOME_CATEGORIES.includes(categoriaStr as IncomeCategory)) {
@@ -102,8 +101,8 @@ export class IncomeController {
         monto: montoNum,
       };
 
-      const newIncome = await IncomeModel.create(userId, incomeData);
-      res.status(201).json(newIncome);
+      const created = await IncomeModel.create(userId, incomeData);
+      res.status(201).json(created);
     } catch (error) {
       console.error('Error al crear ingreso:', error);
       res.status(500).json({
@@ -116,29 +115,24 @@ export class IncomeController {
   static async update(req: IAuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
-      const idParam = req.params.id;
-      const id = typeof idParam === 'string' ? parseInt(idParam, 10) : NaN;
-
+      const id = parseInt(String(req.params.id), 10);
       if (isNaN(id)) {
-        res.status(400).json({
-          message: 'ID inválido',
-          errorCode: 'INVALID_ID',
-        });
+        res.status(400).json({ message: 'ID inválido', errorCode: 'INVALID_ID' });
+        return;
+      }
+
+      const current = await IncomeModel.findById(id, userId);
+      if (!current) {
+        res.status(404).json({ message: 'Ingreso no encontrado', errorCode: 'INCOME_NOT_FOUND' });
         return;
       }
 
       const { fecha, descripcion, categoria, monto } = req.body;
-
       const updateData: any = {};
-      
-      if (fecha !== undefined) {
-        updateData.fecha = String(fecha).split('T')[0];
-      }
-      
-      if (descripcion !== undefined) {
-        updateData.descripcion = descripcion.trim();
-      }
-      
+
+      if (fecha !== undefined) updateData.fecha = String(fecha).split('T')[0];
+      if (descripcion !== undefined) updateData.descripcion = descripcion.trim();
+
       if (categoria !== undefined) {
         if (typeof categoria !== 'string' || !INCOME_CATEGORIES.includes(categoria as IncomeCategory)) {
           res.status(400).json({
@@ -149,7 +143,7 @@ export class IncomeController {
         }
         updateData.categoria = categoria;
       }
-      
+
       if (monto !== undefined) {
         const montoNum = typeof monto === 'string' ? parseFloat(monto) : monto;
         if (typeof montoNum !== 'number' || isNaN(montoNum) || montoNum <= 0) {
@@ -159,16 +153,28 @@ export class IncomeController {
           });
           return;
         }
+
+        // Validación temporal: al aplicar el nuevo monto, el saldo acumulado
+        // en ningún punto de la historia debe quedar negativo.
+        const check = await IncomeModel.validateTimeSeriesBalance(userId, {
+          type: 'update',
+          id,
+          monto: montoNum,
+        });
+        if (!check.ok) {
+          res.status(400).json({
+            message: `Este cambio dejaría el saldo en Q${check.balance.toFixed(2)} el ${check.at}. Ajuste los gastos u otros ingresos primero.`,
+            errorCode: 'INCOME_WOULD_CAUSE_NEGATIVE_BALANCE',
+          });
+          return;
+        }
+
         updateData.monto = montoNum;
       }
 
       const updated = await IncomeModel.update(id, userId, updateData);
-
       if (!updated) {
-        res.status(404).json({
-          message: 'Ingreso no encontrado',
-          errorCode: 'INCOME_NOT_FOUND',
-        });
+        res.status(404).json({ message: 'Ingreso no encontrado', errorCode: 'INCOME_NOT_FOUND' });
         return;
       }
 
@@ -185,30 +191,39 @@ export class IncomeController {
   static async delete(req: IAuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user!.userId;
-      const idParam = req.params.id;
-      const id = typeof idParam === 'string' ? parseInt(idParam, 10) : NaN;
-
+      const id = parseInt(String(req.params.id), 10);
       if (isNaN(id)) {
+        res.status(400).json({ message: 'ID inválido', errorCode: 'INVALID_ID' });
+        return;
+      }
+
+      const current = await IncomeModel.findById(id, userId);
+      if (!current) {
+        res.status(404).json({ message: 'Ingreso no encontrado', errorCode: 'INCOME_NOT_FOUND' });
+        return;
+      }
+
+      // Validación temporal: al eliminar este ingreso, el saldo acumulado en
+      // ningún punto de la historia debe quedar negativo.
+      const check = await IncomeModel.validateTimeSeriesBalance(userId, {
+        type: 'delete',
+        id,
+      });
+      if (!check.ok) {
         res.status(400).json({
-          message: 'ID inválido',
-          errorCode: 'INVALID_ID',
+          message: `No puede eliminar este ingreso porque el saldo quedaría en Q${check.balance.toFixed(2)} el ${check.at}. Elimine o reduzca gastos posteriores a esa fecha.`,
+          errorCode: 'INCOME_WOULD_CAUSE_NEGATIVE_BALANCE',
         });
         return;
       }
 
       const deleted = await IncomeModel.delete(id, userId);
-
       if (!deleted) {
-        res.status(404).json({
-          message: 'Ingreso no encontrado',
-          errorCode: 'INCOME_NOT_FOUND',
-        });
+        res.status(404).json({ message: 'Ingreso no encontrado', errorCode: 'INCOME_NOT_FOUND' });
         return;
       }
 
-      res.status(200).json({
-        message: 'Ingreso eliminado correctamente',
-      });
+      res.status(200).json({ message: 'Ingreso eliminado correctamente' });
     } catch (error) {
       console.error('Error al eliminar ingreso:', error);
       res.status(500).json({
