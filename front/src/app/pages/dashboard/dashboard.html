@@ -12,8 +12,7 @@
         <span
           class="nav-item"
           [class.active]="activeNav === item"
-          [class.disabled]="item !== 'Home' && item !== 'Ingresos'"
-          (click)="onNavClick(item)"
+[class.disabled]="item !== 'Home' && item !== 'Gastos' && item !== 'Ingresos' && item !== 'Deudas' && item !== 'Resumen'"          (click)="onNavClick(item)"
         >{{ item }}</span>
         <span class="nav-divider" *ngIf="!last"></span>
       </ng-container>
@@ -70,7 +69,7 @@
               </span>
             </div>
             <div class="table-cell cell-amount" [class.amount-positive]="m.tipo === 'ingreso'" [class.amount-negative]="m.tipo === 'gasto'">
-              {{ m.tipo === 'ingreso' ? '+' : '-' }}{{ formatCurrency(m.monto) }}
+              {{ formatCurrency(m.monto) }}
             </div>
           </div>
         </div>
@@ -90,11 +89,11 @@
         <div class="chart-area">
           <div class="chart-body">
             <div class="chart-y-axis">
-              <span *ngFor="let label of chartYLabels; index as i" [style.top.px]="i * 40">{{ label }}</span>
+              <span *ngFor="let label of chartYLabels; index as i" [style.top.px]="(i * 200) / 4">{{ label }}</span>
             </div>
             <div class="chart-graph">
               <div class="chart-grid">
-                <div class="grid-line" *ngFor="let i of [1,2,3,4]" [style.top.px]="i * 40"></div>
+                <div class="grid-line" *ngFor="let i of [1,2,3,4]" [style.top.px]="(i * 200) / 4"></div>
               </div>
               <svg class="chart-svg" viewBox="0 0 500 200" preserveAspectRatio="none">
                 <defs>
@@ -105,8 +104,31 @@
                 </defs>
                 <path class="chart-area-fill" [attr.d]="chartArea" fill="url(#gradFlujo)"/>
                 <path class="chart-line" [attr.d]="chartPath" fill="none" stroke="#0ea5e9" stroke-width="3" stroke-linecap="round"/>
-                <circle class="chart-dot" *ngFor="let dot of chartDots; index as i" [attr.cx]="dot.x" [attr.cy]="dot.y" r="4.5" fill="#0ea5e9" [style.animation-delay]="(0.3 + i * 0.25) + 's'"/>
+                <circle
+                  class="chart-dot"
+                  *ngFor="let dot of chartDots; index as i"
+                  [attr.cx]="dot.x"
+                  [attr.cy]="dot.y"
+                  r="5"
+                  fill="#0ea5e9"
+                  [style.animation-delay]="(0.3 + i * 0.25) + 's'"
+                  (mouseenter)="onChartHover(i)"
+                  (mouseleave)="onChartHover(-1)"
+                />
+                <circle
+                  class="chart-dot-hit"
+                  *ngFor="let dot of chartDots; index as i"
+                  [attr.cx]="dot.x"
+                  [attr.cy]="dot.y"
+                  r="16"
+                  (mouseenter)="onChartHover(i)"
+                  (mouseleave)="onChartHover(-1)"
+                />
               </svg>
+              <div class="chart-tooltip" *ngIf="hoveredDot" [style.left.%]="hoveredDot.leftPct" [style.top.%]="hoveredDot.topPct">
+                <div class="tooltip-title">{{ hoveredDot.label }}</div>
+                <div class="tooltip-sub">{{ hoveredDot.sub }}</div>
+              </div>
             </div>
           </div>
           <div class="chart-x-axis">
