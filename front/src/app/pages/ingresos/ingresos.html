@@ -12,8 +12,7 @@
         <span
           class="nav-item"
           [class.active]="activeNav === item"
-          [class.disabled]="item !== 'Home' && item !== 'Ingresos'"
-          (click)="onNavClick(item)"
+[class.disabled]="item !== 'Home' && item !== 'Gastos' && item !== 'Ingresos' && item !== 'Deudas' && item !== 'Resumen'"          (click)="onNavClick(item)"
         >{{ item }}</span>
         <span class="nav-divider" *ngIf="!last"></span>
       </ng-container>
@@ -68,7 +67,7 @@
           </div>
         </div>
         <div class="sc-info">
-          <span class="sc-label">Total</span>
+          <span class="sc-label">Dinero ingresado</span>
           <span class="sc-value">{{ formatCurrency(totalMes) }}</span>
         </div>
       </div>
@@ -84,7 +83,7 @@
           </div>
         </div>
         <div class="sc-info">
-          <span class="sc-label">Ingresos</span>
+          <span class="sc-label">Número de ingresos</span>
           <span class="sc-value">{{ cantidadIngresos }}</span>
         </div>
       </div>
@@ -97,7 +96,7 @@
           </div>
         </div>
         <div class="sc-info">
-          <span class="sc-label">Promedio</span>
+          <span class="sc-label">Promedio de ingresos</span>
           <span class="sc-value">{{ cantidadIngresos > 0 ? formatCurrency(totalMes / cantidadIngresos) : 'Q0.00' }}</span>
         </div>
       </div>
@@ -122,6 +121,7 @@
           type="date"
           class="date-input"
           [(ngModel)]="selectedDate"
+          [max]="hoy"
           (change)="onDateChange()"
         />
       </div>
@@ -179,7 +179,7 @@
           <div class="table-cell">
             <span class="cat-badge">{{ ing.categoria }}</span>
           </div>
-          <div class="table-cell cell-amount amount-positive">+{{ formatCurrency(ing.monto) }}</div>
+          <div class="table-cell cell-amount amount-positive">{{ formatCurrency(ing.monto) }}</div>
           <div class="table-cell cell-actions">
             <button class="row-btn btn-edit" title="Editar" (click)="openEdit(ing)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -210,7 +210,7 @@
         <span class="footer-text">Mostrando {{ filteredIngresos.length }} de {{ ingresos.length }} ingresos</span>
         <div class="footer-total">
           <span class="footer-label">Total:</span>
-          <span class="footer-value">+{{ formatCurrency(totalMes) }}</span>
+          <span class="footer-value">{{ formatCurrency(totalMes) }}</span>
         </div>
       </div>
     </div>
@@ -238,6 +238,7 @@
             type="date"
             class="form-input"
             [(ngModel)]="formFecha"
+            [max]="hoy"
             [disabled]="saving"
           />
         </div>
