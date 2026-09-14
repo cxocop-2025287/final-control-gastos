@@ -156,4 +156,73 @@ export class IncomeModel {
       average: parseFloat(row.average),
     };
   }
+  static async getBalance(userId: number): Promise<number> {
+  const result = await database.query<{ balance: string }>(
+    `SELECT
+       (SELECT COALESCE(SUM(monto), 0) FROM incomes WHERE user_id = $1)
+       - (SELECT COALESCE(SUM(monto), 0) FROM expenses WHERE user_id = $1)
+     AS balance`,
+    [userId]
+  );
+  return parseFloat(result.rows[0].balance);
+}
+static async validateTimeSeriesBalance(
+  userId: number,
+  pendingChange:
+    | { type: 'delete'; id: number }
+    | { type: 'update'; id: number; monto: number }
+    | null
+): Promise<{ ok: true } | { ok: false; at: string; balance: number }> {
+  // Traemos todos los movimientos del usuario: ingresos y gastos con fecha y monto.
+  const result = await database.query<{
+    tipo: 'ingreso' | 'gasto';
+    id: number;
+    fecha: string;
+    monto: string;
+  }>(
+    `SELECT 'ingreso' AS tipo, id, fecha, monto FROM incomes WHERE user_id = $1
+     UNION ALL
+     SELECT 'gasto' AS tipo, id, fecha, monto FROM expenses WHERE user_id = $1
+     ORDER BY fecha ASC, id ASC`,
+    [userId]
+  );
+
+  // Aplicamos el cambio pendiente sobre la lista, si corresponde.
+  type Row = { tipo: 'ingreso' | 'gasto'; id: number; fecha: string; monto: number };
+  const rows: Row[] = [];
+
+  for (const r of result.rows) {
+    let monto = parseFloat(r.monto);
+
+    if (pendingChange && r.tipo === 'ingreso' && r.id === pendingChange.id) {
+      if (pendingChange.type === 'delete') {
+        continue; // se elimina
+      }
+      if (pendingChange.type === 'update') {
+        monto = pendingChange.monto;
+      }
+    }
+
+    rows.push({ tipo: r.tipo, id: r.id, fecha: r.fecha, monto });
+  }
+
+  // Reordenamos porque al aplicar cambios puede haberse alterado el orden.
+  rows.sort((a, b) => {
+    const byFecha = String(a.fecha).localeCompare(String(b.fecha));
+    return byFecha !== 0 ? byFecha : a.id - b.id;
+  });
+
+  // Recorremos acumulando. El saldo debe ser >= 0 en todo momento.
+  let saldo = 0;
+  for (const r of rows) {
+    if (r.tipo === 'ingreso') saldo += r.monto;
+    else saldo -= r.monto;
+
+    if (saldo < -0.005) {
+      return { ok: false, at: String(r.fecha).split('T')[0], balance: saldo };
+    }
+  }
+
+  return { ok: true };
+}
 }
