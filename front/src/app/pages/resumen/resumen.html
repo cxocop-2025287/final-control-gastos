@@ -1,0 +1,238 @@
+<div class="resumen-page">
+
+  <!-- NAVBAR -->
+  <nav class="dash-nav">
+    <div class="nav-brand">
+      <img src="img/LogoTrasparente.png" alt="Logo" class="nav-logo-img" />
+      <span class="nav-brand-text">Gestor de Gastos</span>
+    </div>
+
+    <div class="nav-menu">
+      <ng-container *ngFor="let item of ['Home', 'Gastos', 'Ingresos', 'Deudas', 'Resumen']; let last = last">
+        <span
+          class="nav-item"
+          [class.active]="activeNav === item"
+          [class.disabled]="item !== 'Home' && item !== 'Gastos' && item !== 'Ingresos' && item !== 'Deudas' && item !== 'Resumen'"
+          (click)="onNavClick(item)"
+        >{{ item }}</span>
+        <span class="nav-divider" *ngIf="!last"></span>
+      </ng-container>
+    </div>
+
+    <button class="nav-logout" (click)="onLogout()">
+      Cerrar<br/>Sesión
+    </button>
+  </nav>
+
+  <div class="load-error" *ngIf="loadError && !loading">{{ loadError }}</div>
+
+  <div class="page-loading" *ngIf="loading">
+    <div class="spinner"></div>
+    <span class="loading-text">Calculando...</span>
+  </div>
+
+  <main class="resumen-main" [class.is-loading]="loading">
+
+    <!-- Hero -->
+    <div class="resumen-hero">
+      <div class="hero-shapes">
+        <span class="hero-shape hs-1"></span>
+        <span class="hero-shape hs-2"></span>
+        <span class="hero-shape hs-3"></span>
+      </div>
+      <div class="hero-content">
+        <div class="hero-text">
+          <h1 class="resumen-title">Resumen</h1>
+          <p class="resumen-subtitle">Analice sus ingresos y gastos por categoría</p>
+        </div>
+        <button class="btn-reset" (click)="resetFilters()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+          </svg>
+          Reiniciar filtros
+        </button>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="filters-bar">
+
+      <!-- Rango -->
+      <div class="dropdown" [class.open]="openDropdown === 'rango'">
+        <button class="dropdown-toggle" (click)="toggleDropdown('rango')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+          <span>{{ rangoLabel }}</span>
+          <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        <div class="dropdown-menu" *ngIf="openDropdown === 'rango'">
+          <button class="dd-option" [class.active]="dateFilter === 'mes'" (click)="setRango('mes')">Mes</button>
+          <button class="dd-option" [class.active]="dateFilter === 'anio'" (click)="setRango('anio')">Año</button>
+          <button class="dd-option" [class.active]="dateFilter === 'personalizado'" (click)="setRango('personalizado')">Rango personalizado</button>
+          <button class="dd-option" [class.active]="dateFilter === 'todo'" (click)="setRango('todo')">Todo</button>
+        </div>
+      </div>
+
+      <div class="fecha-input" *ngIf="dateFilter === 'mes' || dateFilter === 'anio'">
+        <input type="date" class="form-input" [(ngModel)]="selectedDate" [max]="hoy" (change)="onDateChange()" />
+      </div>
+      <div class="fecha-input fecha-range" *ngIf="dateFilter === 'personalizado'">
+        <input type="date" class="form-input" [(ngModel)]="fechaDesde" [max]="hoy" (change)="onPersonalizadoChange()" />
+        <span class="range-sep">→</span>
+        <input type="date" class="form-input" [(ngModel)]="fechaHasta" [max]="hoy" (change)="onPersonalizadoChange()" />
+      </div>
+
+      <!-- Categoría de ingresos -->
+      <div class="dropdown" [class.open]="openDropdown === 'catIngreso'">
+        <button class="dropdown-toggle dd-ingreso" (click)="toggleDropdown('catIngreso')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+            <polyline points="17 6 23 6 23 12"/>
+          </svg>
+          <span>{{ categoriaIngresoLabel }}</span>
+          <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        <div class="dropdown-menu dd-scroll" *ngIf="openDropdown === 'catIngreso'">
+          <button class="dd-option" [class.active]="categoriaIngreso === null" (click)="setCategoriaIngreso(null)">Todas</button>
+          <button
+            class="dd-option"
+            *ngFor="let cat of categoriasIngreso"
+            [class.active]="categoriaIngreso === cat"
+            (click)="setCategoriaIngreso(cat)"
+          >{{ cat }}</button>
+        </div>
+      </div>
+
+      <!-- Categoría de gastos -->
+      <div class="dropdown" [class.open]="openDropdown === 'catGasto'">
+        <button class="dropdown-toggle dd-gasto" (click)="toggleDropdown('catGasto')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/>
+            <polyline points="17 18 23 18 23 12"/>
+          </svg>
+          <span>{{ categoriaGastoLabel }}</span>
+          <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        <div class="dropdown-menu dd-scroll" *ngIf="openDropdown === 'catGasto'">
+          <button class="dd-option" [class.active]="categoriaGasto === null" (click)="setCategoriaGasto(null)">Todas</button>
+          <button
+            class="dd-option"
+            *ngFor="let cat of categoriasGasto"
+            [class.active]="categoriaGasto === cat"
+            (click)="setCategoriaGasto(cat)"
+          >{{ cat }}</button>
+        </div>
+      </div>
+
+      <!-- Buscar -->
+      <div class="search-box">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input
+          type="text"
+          placeholder="Buscar..."
+          class="search-input"
+          [(ngModel)]="searchTerm"
+          (ngModelChange)="onSearch()"
+        />
+      </div>
+
+    </div>
+
+    <!-- Cuadro principal -->
+    <div class="table-card">
+      <div class="table-card-header">
+        <h3 class="table-card-title">{{ filteredMovements.length }} movimiento{{ filteredMovements.length === 1 ? '' : 's' }}</h3>
+      </div>
+
+      <div class="table-scroll">
+        <table class="resumen-table">
+          <thead>
+            <tr>
+              <th class="th-sortable" (click)="onSort('fecha')">
+                Fecha <span class="sort-arrow" *ngIf="ordenCampo === 'fecha'">{{ ordenDir === 'asc' ? '▲' : '▼' }}</span>
+              </th>
+              <th class="th-sortable" (click)="onSort('descripcion')">
+                Descripción <span class="sort-arrow" *ngIf="ordenCampo === 'descripcion'">{{ ordenDir === 'asc' ? '▲' : '▼' }}</span>
+              </th>
+              <th class="th-sortable" (click)="onSort('categoria')">
+                Categoría <span class="sort-arrow" *ngIf="ordenCampo === 'categoria'">{{ ordenDir === 'asc' ? '▲' : '▼' }}</span>
+              </th>
+              <th class="th-sortable" (click)="onSort('monto')">
+                Tipo <span class="sort-arrow" *ngIf="ordenCampo === 'monto'">{{ ordenDir === 'asc' ? '▲' : '▼' }}</span>
+              </th>
+              <th class="th-amount">Ingreso</th>
+              <th class="th-amount th-gasto">Gasto</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let m of filteredMovements; trackBy: trackByMovementId">
+              <td class="cell-fecha">{{ formatDate(m.fecha) }}</td>
+              <td class="cell-desc">{{ m.descripcion }}</td>
+              <td><span class="cat-badge">{{ m.categoria }}</span></td>
+              <td>
+                <span class="type-badge" [class.type-ingreso]="m.tipo === 'ingreso'" [class.type-gasto]="m.tipo === 'gasto'">
+                  {{ m.tipo === 'ingreso' ? 'Ingreso' : 'Gasto' }}
+                </span>
+              </td>
+              <td class="cell-monto monto-ingreso">
+                <span *ngIf="m.tipo === 'ingreso'">{{ formatCurrency(m.monto) }}</span>
+              </td>
+              <td class="cell-monto monto-gasto">
+                <span *ngIf="m.tipo === 'gasto'">{{ formatCurrency(m.monto) }}</span>
+              </td>
+            </tr>
+            <tr *ngIf="filteredMovements.length === 0">
+              <td colspan="6" class="cell-empty">No hay movimientos con los filtros actuales.</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="foot-suma">
+              <td colspan="4" class="foot-label">Suma</td>
+              <td class="cell-monto monto-ingreso">{{ formatCurrency(filteredTotals.totalIngresos) }}</td>
+              <td class="cell-monto monto-gasto">{{ formatCurrency(filteredTotals.totalGastos) }}</td>
+            </tr>
+            <tr class="foot-total">
+              <td colspan="5" class="foot-total-label">Total (Ingresos − Gastos)</td>
+              <td class="cell-monto foot-total-value"
+                  [class.monto-ingreso]="filteredTotals.neto >= 0"
+                  [class.monto-gasto]="filteredTotals.neto < 0">
+                {{ formatCurrency(filteredTotals.neto) }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <div class="session-expired-overlay" *ngIf="showSessionExpired">
+    <div class="session-expired-modal">
+      <div class="modal-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-yellow-mustard)" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+      </div>
+      <h2>Sesión expirada</h2>
+      <p>Su sesión ha terminado por inactividad. Inicie sesión nuevamente para continuar.</p>
+      <button class="btn-accept" (click)="onAcceptSessionExpired()">Aceptar</button>
+    </div>
+  </div>
+
+</div>
