@@ -42,15 +42,15 @@
       </div>
       <div class="hero-content">
         <div class="hero-text">
-          <h1 class="ing-title">Ingresos</h1>
-          <p class="ing-subtitle">Administre y revise todos sus ingresos registrados</p>
+          <h1 class="ing-title">Gastos</h1>
+          <p class="ing-subtitle">Administre y revise todos sus egresos registrados</p>
         </div>
         <button class="btn-new" (click)="openCreate()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <line x1="12" y1="5" x2="12" y2="19"/>
             <line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
-          Nuevo ingreso
+          Nuevo gasto
         </button>
       </div>
     </div>
@@ -67,7 +67,7 @@
           </div>
         </div>
         <div class="sc-info">
-          <span class="sc-label">Dinero ingresado</span>
+          <span class="sc-label">Total gastado</span>
           <span class="sc-value">{{ formatCurrency(totalMes) }}</span>
         </div>
       </div>
@@ -75,7 +75,7 @@
         <div class="sc-icon-wrap">
           <div class="sc-icon">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 1 2-2V8z"/>
               <polyline points="14 2 14 8 20 8"/>
               <line x1="16" y1="13" x2="8" y2="13"/>
               <line x1="16" y1="17" x2="8" y2="17"/>
@@ -83,8 +83,8 @@
           </div>
         </div>
         <div class="sc-info">
-          <span class="sc-label">Número de ingresos</span>
-          <span class="sc-value">{{ cantidadIngresos }}</span>
+          <span class="sc-label">Gastos</span>
+          <span class="sc-value">{{ cantidadGastos }}</span>
         </div>
       </div>
       <div class="summary-card sc-promedio">
@@ -96,8 +96,23 @@
           </div>
         </div>
         <div class="sc-info">
-          <span class="sc-label">Promedio de ingresos</span>
-          <span class="sc-value">{{ cantidadIngresos > 0 ? formatCurrency(totalMes / cantidadIngresos) : 'Q0.00' }}</span>
+          <span class="sc-label">Promedio</span>
+          <span class="sc-value">{{ cantidadGastos > 0 ? formatCurrency(totalMes / cantidadGastos) : 'Q0.00' }}</span>
+        </div>
+      </div>
+      <div class="summary-card sc-disponible">
+        <div class="sc-icon-wrap">
+          <div class="sc-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="2" x2="12" y2="22"/>
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="12" y1="12" x2="12.01" y2="12"/>
+            </svg>
+          </div>
+        </div>
+        <div class="sc-info">
+          <span class="sc-label">Disponible</span>
+          <span class="sc-value">{{ formatCurrency(saldoDisponible) }}</span>
         </div>
       </div>
     </div>
@@ -131,8 +146,8 @@
     <div class="ing-table-container">
       <div class="table-toolbar">
         <div class="toolbar-left">
-          <span class="toolbar-title">Historial de ingresos</span>
-          <span class="toolbar-count">{{ filteredIngresos.length }} registros</span>
+          <span class="toolbar-title">Historial de gastos</span>
+          <span class="toolbar-count">{{ filteredGastos.length }} registros</span>
         </div>
         <div class="toolbar-right">
           <div class="toolbar-search">
@@ -172,21 +187,28 @@
           <div class="table-cell header-cell">Monto</div>
           <div class="table-cell header-cell">Acciones</div>
         </div>
-        <div class="table-row table-data-row" *ngFor="let ing of filteredIngresos; let i = index">
+        <div class="table-row table-data-row" *ngFor="let gas of filteredGastos; let i = index">
           <div class="table-cell cell-index">{{ i + 1 }}</div>
-          <div class="table-cell cell-date">{{ formatDate(ing.fecha) }}</div>
-          <div class="table-cell cell-desc">{{ ing.descripcion }}</div>
+          <div class="table-cell cell-date">{{ formatDate(gas.fecha) }}</div>
+          <div class="table-cell cell-desc">{{ gas.descripcion }}</div>
           <div class="table-cell">
-            <span class="cat-badge">{{ ing.categoria }}</span>
+            <span class="cat-badge">{{ gas.categoria }}</span>
           </div>
-          <div class="table-cell cell-amount amount-positive">{{ formatCurrency(ing.monto) }}</div>
+          <div class="table-cell cell-amount amount-gasto">{{ formatCurrency(gas.monto) }}</div>
           <div class="table-cell cell-actions">
-            <button class="row-btn btn-edit" title="Editar" (click)="openEdit(ing)">
+            <button
+              class="row-btn btn-edit"
+              [title]="gas.debt_id ? 'Editar desde el módulo de Deudas' : 'Editar'"
+              [disabled]="!!gas.debt_id"
+              [style.opacity]="gas.debt_id ? 0.4 : 1"
+              [style.cursor]="gas.debt_id ? 'not-allowed' : 'pointer'"
+              (click)="openEdit(gas)"
+            >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
               </svg>
             </button>
-            <button class="row-btn btn-delete" title="Eliminar" (click)="onDelete(ing)">
+            <button class="row-btn btn-delete" title="Eliminar" (click)="onDelete(gas)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -196,20 +218,20 @@
             </button>
           </div>
         </div>
-        <div class="table-row table-empty" *ngIf="!filteredIngresos.length">
+        <div class="table-row table-empty" *ngIf="!filteredGastos.length">
           <div class="table-cell cell-empty">
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
               <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
             </svg>
-            <span class="empty-text">No hay ingresos para mostrar</span>
+            <span class="empty-text">No hay gastos para mostrar</span>
           </div>
         </div>
       </div>
       <div class="table-footer">
-        <span class="footer-text">Mostrando {{ filteredIngresos.length }} de {{ ingresos.length }} ingresos</span>
+        <span class="footer-text">Mostrando {{ filteredGastos.length }} de {{ gastos.length }} gastos</span>
         <div class="footer-total">
-          <span class="footer-label">Total:</span>
+          <span class="footer-label">Total gastado:</span>
           <span class="footer-value">{{ formatCurrency(totalMes) }}</span>
         </div>
       </div>
@@ -217,11 +239,11 @@
 
   </main>
 
-  <!-- MODAL CREAR / EDITAR INGRESO -->
+  <!-- MODAL CREAR / EDITAR GASTO -->
   <div class="modal-overlay" *ngIf="showModal" (click)="saving ? null : onCancel()">
     <div class="modal-card" (click)="$event.stopPropagation()">
       <div class="modal-header">
-        <h3 class="modal-title">{{ editingId !== null ? 'Editar ingreso' : 'Nuevo ingreso' }}</h3>
+        <h3 class="modal-title">{{ editingId !== null ? 'Editar gasto' : 'Nuevo gasto' }}</h3>
         <button class="modal-close" (click)="onCancel()" [disabled]="saving">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/>
@@ -231,6 +253,10 @@
       </div>
 
       <div class="modal-body">
+        <div class="balance-hint" *ngIf="editingId === null">
+          Disponible para gastar: <strong>{{ formatCurrency(saldoDisponible) }}</strong>
+        </div>
+
         <div class="form-group">
           <label class="form-label" for="formFecha">Fecha</label>
           <input
@@ -249,7 +275,7 @@
             id="formDescripcion"
             type="text"
             class="form-input"
-            placeholder="Ej: Salario mensual"
+            placeholder="Ej: Compra de supermercado"
             [(ngModel)]="formDescripcion"
             [disabled]="saving"
           />
@@ -263,7 +289,7 @@
             [(ngModel)]="formCategoria"
             [disabled]="saving"
           >
-            <option *ngFor="let cat of incomeCategories" [ngValue]="cat">{{ cat }}</option>
+            <option *ngFor="let cat of categoriasFormulario" [ngValue]="cat">{{ cat }}</option>
           </select>
         </div>
 

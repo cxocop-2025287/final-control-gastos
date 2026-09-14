@@ -7,6 +7,7 @@ export interface IUser {
   password: string;
   role: Role;
   is_active: boolean;
+  google_id?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -37,15 +38,24 @@ export class UserModel {
     return result.rows[0] || null;
   }
 
+  static async findByGoogleId(googleId: string): Promise<IUser | null> {
+    const result = await database.query<IUser>(
+      'SELECT * FROM users WHERE google_id = $1',
+      [googleId]
+    );
+    return result.rows[0] || null;
+  }
+
   static async create(data: {
     name: string;
     password: string;
     role: Role;
     is_active?: boolean;
+    google_id?: string;
   }): Promise<IUser> {
     const result = await database.query<IUser>(
-      'INSERT INTO users (name, password, role, is_active) VALUES ($1, $2, $3, $4) RETURNING *',
-      [data.name, data.password, data.role, data.is_active ?? true]
+      'INSERT INTO users (name, password, role, is_active, google_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [data.name, data.password, data.role, data.is_active ?? true, data.google_id || null]
     );
     return result.rows[0];
   }

@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 
+declare var google: any;
+
 interface Particle {
   x: number;
   y: number;
@@ -48,9 +50,69 @@ export class LoginComponent implements AfterViewInit, OnDestroy {
     private cdr: ChangeDetectorRef
   ) {}
 
-  ngAfterViewInit(): void {
+  async ngAfterViewInit(): Promise<void> {
     this.initCanvas();
     this.animate();
+
+    try {
+      const config = await this.authService.reloadConfig();
+      if (config && config.googleClientId) {
+        this.initGoogleSignIn(config.googleClientId);
+      }
+    } catch (e) {
+      console.error('Failed to load config for Google Sign-In', e);
+    }
+  }
+
+  private initGoogleSignIn(clientId: string, retryCount = 0): void {
+    if (typeof google === 'undefined' || !google.accounts) {
+      if (retryCount < 20) {
+        setTimeout(() => this.initGoogleSignIn(clientId, retryCount + 1), 300);
+      } else {
+        console.warn('Google scripts not loaded after multiple attempts');
+      }
+      return;
+    }
+    
+    google.accounts.id.initialize({
+      client_id: clientId,
+      callback: this.handleGoogleCredentialResponse.bind(this)
+    });
+
+    const btnContainer = document.getElementById('google-btn-container');
+    if (btnContainer) {
+      google.accounts.id.renderButton(
+        btnContainer,
+        { theme: 'outline', size: 'large', type: 'standard', width: '340' }
+      );
+    }
+  }
+
+  private handleGoogleCredentialResponse(response: any): void {
+    this.isLoading = true;
+    this.errorMessage = '';
+    this.successMessage = '';
+    this.cdr.detectChanges();
+
+    this.authService.googleLogin(response.credential).subscribe({
+      next: (res) => {
+        this.isLoading = false;
+        this.successMessage = res.message;
+        this.cdr.detectChanges();
+        setTimeout(() => {
+          this.router.navigate(['/app']);
+        }, 1000);
+      },
+      error: (error) => {
+        this.isLoading = false;
+        if (error.error?.errorCode === 'ACCOUNT_DISABLED') {
+          this.errorMessage = 'Esta cuenta no está habilitada para iniciar sesión.';
+        } else {
+          this.errorMessage = 'Error en autenticación de Google. Intente nuevamente.';
+        }
+        this.cdr.detectChanges();
+      }
+    });
   }
 
   ngOnDestroy(): void {

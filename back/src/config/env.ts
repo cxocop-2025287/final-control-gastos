@@ -15,5 +15,6 @@ export const env = {
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:4200',
   SEED_USER_PASSWORD: process.env.SEED_USER_PASSWORD || 'usuario123',
   SEED_ADMIN_PASSWORD: process.env.SEED_ADMIN_PASSWORD || 'admin123',
-  SESSION_INACTIVITY_TIMEOUT: parseInt(process.env.SESSION_INACTIVITY_TIMEOUT || '60', 10),
+  SESSION_INACTIVITY_TIMEOUT: parseInt(process.env.SESSION_INACTIVITY_TIMEOUT || '14400', 10),
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '155138157347-q7jcnhj60ohs5caa2di46dvsrmdpljfd.apps.googleusercontent.com',
 };

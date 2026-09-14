@@ -72,17 +72,21 @@ export class AuthService {
    * Solo recarga la config si no se ha cargado aún, y solo inicia el
    * monitor si no está corriendo. NO resetea el timer de actividad.
    */
-  async reloadConfig(): Promise<void> {
+  async reloadConfig(): Promise<{ sessionInactivityTimeout: number, googleClientId: string } | undefined> {
+    let config;
     if (!this.configLoaded) {
-      await this.loadConfig();
+      config = await this.loadConfig();
+    } else {
+      config = await firstValueFrom(this.http.get<{ sessionInactivityTimeout: number, googleClientId: string }>('/api/config'));
     }
     this.startMonitorIfNeeded();
+    return config;
   }
 
-  private async loadConfig(): Promise<void> {
+  private async loadConfig(): Promise<{ sessionInactivityTimeout: number, googleClientId: string }> {
     try {
       const config = await firstValueFrom(
-        this.http.get<{ sessionInactivityTimeout: number }>('/api/config')
+        this.http.get<{ sessionInactivityTimeout: number, googleClientId: string }>('/api/config')
       );
       const newTimeout = (config.sessionInactivityTimeout || 60) * 1000;
 
@@ -98,8 +102,10 @@ export class AuthService {
       }
 
       this.configLoaded = true;
+      return config;
     } catch (error) {
       console.error('Error cargando configuración:', error);
+      throw error;
     }
   }
 
@@ -110,6 +116,19 @@ export class AuthService {
         tap(async (response) => {
           this.isSessionExpired = false;
           this.configLoaded = false; // Forzar recarga de config tras login
+          await this.loadConfig();
+          this.setSession(response.token, response.user);
+        })
+      );
+  }
+
+  googleLogin(credential: string): Observable<LoginResponse> {
+    return this.http
+      .post<LoginResponse>('/api/auth/google', { token: credential })
+      .pipe(
+        tap(async (response) => {
+          this.isSessionExpired = false;
+          this.configLoaded = false;
           await this.loadConfig();
           this.setSession(response.token, response.user);
         })

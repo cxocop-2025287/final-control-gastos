@@ -8,8 +8,8 @@ import {
   DashboardSummary,
   Movement,
   ChartPoint,
-  DebtProgress,
 } from '../../services/dashboard.service';
+import { DebtProgress, EMPTY_DEBT_PROGRESS } from '../../models/debt.model';
 
 @Component({
   selector: 'app-dashboard',
@@ -30,22 +30,24 @@ export class DashboardComponent implements OnInit, OnDestroy {
   summary: DashboardSummary = { saldoTotal: 0, ingreso: 0, gasto: 0, ahorroMensual: 0 };
   movements: Movement[] = [];
   chartData: ChartPoint[] = [];
-  debtProgress: DebtProgress = {
-    porcentaje: 0,
-    pagado: 0,
-    total: 0,
-    restante: 0,
-    pagoMensual: 0,
-    deudas: [],
-  };
+  debtProgress: DebtProgress = EMPTY_DEBT_PROGRESS;
 
   chartPath = '';
   chartArea = '';
-  chartDots: { x: number; y: number }[] = [];
+  chartDots: { x: number; y: number; leftPct: number; topPct: number; label: string; sub: string }[] = [];
   chartLabels: string[] = [];
   chartMaxValue = 0;
   chartYLabels: string[] = [];
   currentMonth = '';
+
+  /** Punto de la gráfica sobre el que está el mouse (para el tooltip); -1 = ninguno */
+  chartHoverIndex = -1;
+
+  get hoveredDot(): { x: number; y: number; leftPct: number; topPct: number; label: string; sub: string } | null {
+    return this.chartHoverIndex >= 0 && this.chartDots[this.chartHoverIndex]
+      ? this.chartDots[this.chartHoverIndex]
+      : null;
+  }
 
   debtOffset = 314.16;
   displayedPorcentaje = 0;
@@ -60,9 +62,9 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     this.user = this.authService.getUser();
-    
+
     await this.authService.reloadConfig();
-    
+
     this.sessionSub = this.authService.sessionExpired$.subscribe(() => {
       this.showSessionExpired = true;
       this.cdr.detectChanges();
@@ -92,7 +94,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
           this.summary = data.summary;
           this.movements = data.movements.slice(0, 10);
           this.chartData = data.chartData;
-          this.debtProgress = this.dashboardService.getDebtProgress();
+          this.debtProgress = data.debtProgress;
 
           this.debtOffset = 314.16 - (314.16 * this.debtProgress.porcentaje) / 100;
           this.displayedPorcentaje = this.debtProgress.porcentaje;
@@ -129,14 +131,27 @@ export class DashboardComponent implements OnInit, OnDestroy {
   }
 
   onNavClick(item: string): void {
-    if (item !== 'Home' && item !== 'Ingresos') return;
+  if (item !== 'Home' && item !== 'Gastos' && item !== 'Ingresos' && item !== 'Deudas' && item !== 'Resumen') return;
 
-    if (item === 'Ingresos') {
-      this.router.navigate(['/ingresos']);
-      return;
-    }
-    this.activeNav = item;
+  if (item === 'Gastos') {
+    this.router.navigate(['/gastos']);
+    return;
   }
+  if (item === 'Ingresos') {
+    this.router.navigate(['/ingresos']);
+    return;
+  }
+  if (item === 'Deudas') {
+    this.router.navigate(['/deudas']);
+    return;
+  }
+  if (item === 'Resumen') {
+    this.router.navigate(['/resumen']);
+    return;
+  }
+  // Home: ya estamos en /app, no hacemos nada
+  this.activeNav = item;
+}
 
   onLogout(): void {
     this.authService.logout();
@@ -145,6 +160,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
   onAcceptSessionExpired(): void {
     this.showSessionExpired = false;
     this.authService.confirmSessionExpired();
+  }
+
+  onChartHover(index: number): void {
+    this.chartHoverIndex = index;
   }
 
   formatCurrency(value: number): string {
@@ -163,7 +182,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
   formatDate(dateStr: string): string {
     if (!dateStr) return 'Fecha no disponible';
     try {
-      // Parsear como fecha local para evitar desfase UTC
       const parts = String(dateStr).split('T')[0].split('-');
       let d: Date;
       if (parts.length >= 3) {
@@ -182,62 +200,149 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
   }
 
-  getMovementIcon(type: string): string {
-    return type === 'ingreso' ? '+' : '-';
-  }
-
+  /**
+   * Construye la gráfica de flujo de dinero.
+   *
+   *  - 4 columnas fijas: Semana 1 a Semana 4.
+   *  - La curva solo dibuja puntos hasta la semana actual (las futuras quedan vacías).
+   *  - El eje Y muestra etiquetas redondas (múltiplos limpios) abreviadas con k/M/B.
+   */
   private buildChart(): void {
     const data = this.chartData || [];
+    const totalWeeks = 4;
 
     const width = 500;
     const height = 200;
     const paddingY = 16;
 
+    // Máximo real considerando solo valores no nulos.
     let maxVal = 0;
-    if (data.length > 0) {
-      maxVal = Math.max(...data.map(d => d.valor || 0));
+    for (const d of data) {
+      if (d.valor !== null && d.valor !== undefined) {
+        maxVal = Math.max(maxVal, d.valor);
+      }
     }
-    if (maxVal === 0) {
-      maxVal = 10000;
-    }
-    maxVal = Math.ceil(maxVal / 5000) * 5000;
 
-    this.chartMaxValue = maxVal;
+    // Candidatos para el step "bonito" (10, 20, 25, 50, 100, 200, 250, 500 * 10^n).
+    const niceStepCandidates: number[] = [];
+    const bases = [10, 20, 25, 50, 100, 200, 250, 500];
+    for (let exp = 0; exp <= 12; exp++) {
+      for (const b of bases) {
+        niceStepCandidates.push(b * Math.pow(10, exp));
+      }
+    }
+    niceStepCandidates.sort((a, b) => a - b);
+
+    const targetTop = Math.max(maxVal * 1.33, 100);
+    let step = niceStepCandidates[niceStepCandidates.length - 1];
+    for (const c of niceStepCandidates) {
+      if (4 * c >= targetTop) {
+        step = c;
+        break;
+      }
+    }
+
+    const topVal = 4 * step;
+
+    this.chartMaxValue = topVal;
     this.chartPath = '';
     this.chartArea = '';
     this.chartDots = [];
     this.chartLabels = ['Semana 1', 'Semana 2', 'Semana 3', 'Semana 4'];
     this.chartYLabels = [];
 
-    for (let i = 5; i >= 0; i--) {
-      const v = (maxVal / 5) * i;
-      this.chartYLabels.push(v === 0 ? 'Q0' : 'Q' + (v / 1000).toFixed(1) + 'k');
-    }
-
-    const bottom = height;
-    const toY = (val: number) => {
-      const usableHeight = height - paddingY * 2;
-      return height - paddingY - (val / maxVal) * usableHeight;
+    // Abreviación con k / M / B.
+    const fmtLabel = (v: number): string => {
+      if (v === 0) return 'Q0';
+      const abs = Math.abs(v);
+      const sign = v < 0 ? '-' : '';
+      if (abs < 1000) return `Q${sign}${Math.round(abs)}`;
+      if (abs < 1_000_000) {
+        const n = abs / 1000;
+        return `Q${sign}${n % 1 === 0 ? n.toFixed(0) : n.toFixed(1)}k`;
+      }
+      if (abs < 1_000_000_000) {
+        const n = abs / 1_000_000;
+        return `Q${sign}${n % 1 === 0 ? n.toFixed(0) : n.toFixed(1)}M`;
+      }
+      const n = abs / 1_000_000_000;
+      return `Q${sign}${n % 1 === 0 ? n.toFixed(0) : n.toFixed(1)}B`;
     };
 
-    // 4 columnas uniformes de ancho width/4 = 125px
-    // Centros en 62.5, 187.5, 312.5, 437.5
-    const colWidth = width / 4;
-    const dotPoints: { x: number; y: number }[] = [];
+    for (let i = 0; i < 5; i++) {
+      const v = topVal - step * i;
+      this.chartYLabels.push(fmtLabel(v));
+    }
 
-    for (let i = 0; i < 4; i++) {
-      const val = data[i]?.valor || 0;
-      dotPoints.push({
-        x: colWidth * i + colWidth / 2,
-        y: toY(val),
+    const usableHeight = height - paddingY * 2;
+    const toY = (val: number) => {
+      const clamped = Math.max(0, val);
+      return height - paddingY - (clamped / topVal) * usableHeight;
+    };
+
+    const fmt = (n: number) => 'Q' + n.toFixed(2);
+
+    // 4 columnas fijas.
+    const colWidth = width / totalWeeks;
+    const allColumns: { x: number; y: number; leftPct: number; topPct: number; label: string; sub: string }[] = [];
+
+    for (let i = 0; i < totalWeeks; i++) {
+      const point = data[i] || { valor: null, ingresos: null, gastos: null };
+      const x = colWidth * i + colWidth / 2;
+
+      if (point.valor === null || point.valor === undefined) {
+        // Semana futura: no dibujamos punto. Reservamos la columna con y = -1.
+        allColumns.push({
+          x,
+          y: -1,
+          leftPct: 0,
+          topPct: 0,
+          label: '',
+          sub: '',
+        });
+        continue;
+      }
+
+      const val = Math.max(0, point.valor);
+      const ingresos = point.ingresos || 0;
+      const gastos = point.gastos || 0;
+      const y = toY(val);
+
+      let leftPct = Math.round((x / width) * 10000) / 100;
+      let topPct = Math.round((y / height) * 10000) / 100;
+      if (leftPct < 14) leftPct = 14;
+      if (leftPct > 86) leftPct = 86;
+      if (topPct < 16) topPct = 16;
+      if (topPct > 92) topPct = 92;
+
+      allColumns.push({
+        x,
+        y,
+        leftPct,
+        topPct,
+        label: this.chartLabels[i],
+        sub: `Saldo ${fmt(val)} · +${fmt(ingresos)} / -${fmt(gastos)}`,
       });
     }
 
-    // Puntos para trazar la curva suave cubriendo todo el ancho de 0 a width (500)
+    // Solo los puntos con valor (no null) se usan para dibujar la curva.
+    const dotPoints = allColumns.filter((c) => c.y >= 0);
+
+    if (dotPoints.length === 0) {
+      this.chartPath = '';
+      this.chartArea = '';
+      this.chartDots = [];
+      return;
+    }
+
+    // La curva empieza en x=0 y termina en el último punto con valor.
+    const first = dotPoints[0];
+    const last = dotPoints[dotPoints.length - 1];
+
     const curvePoints: { x: number; y: number }[] = [
-      { x: 0, y: dotPoints[0].y },
-      ...dotPoints,
-      { x: width, y: dotPoints[3].y },
+      { x: 0, y: first.y },
+      ...dotPoints.map((d) => ({ x: d.x, y: d.y })),
+      { x: last.x, y: last.y },
     ];
 
     let path = `M${curvePoints[0].x},${curvePoints[0].y}`;
@@ -248,8 +353,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
       path += ` C${cpX},${prev.y} ${cpX},${cur.y} ${cur.x},${cur.y}`;
     }
 
+    const baseY = height - paddingY;
     this.chartPath = path;
-    this.chartArea = `${path} L${width},${bottom} L0,${bottom} Z`;
+
+    const allZero = dotPoints.every((p) => Math.abs(p.y - baseY) < 1);
+    this.chartArea = allZero ? '' : `${path} L${last.x},${baseY} L0,${baseY} Z`;
     this.chartDots = dotPoints;
   }
 }

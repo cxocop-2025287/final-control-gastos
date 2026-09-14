@@ -54,6 +54,7 @@ class DatabaseService {
         password VARCHAR(255) NOT NULL,
         role VARCHAR(10) NOT NULL DEFAULT 'USER' CHECK (role IN ('USER', 'ADMIN')),
         is_active BOOLEAN NOT NULL DEFAULT true,
+        google_id VARCHAR(255) UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -72,12 +73,64 @@ class DatabaseService {
       );
     `;
 
+    const createExpensesTable = `
+      CREATE TABLE IF NOT EXISTS expenses (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+        descripcion VARCHAR(255) NOT NULL,
+        categoria VARCHAR(50) NOT NULL CHECK (categoria IN ('Comida', 'Transporte', 'Vivienda', 'Salud', 'Educación', 'Ocio', 'Otro', 'Deudas')),
+        monto DECIMAL(12,2) NOT NULL CHECK (monto > 0),
+        debt_id INTEGER REFERENCES debts(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+
+    const createDebtsTable = `
+      CREATE TABLE IF NOT EXISTS debts (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(100) NOT NULL,
+        creditor VARCHAR(100) NOT NULL,
+        original_amount DECIMAL(12,2) NOT NULL CHECK (original_amount > 0),
+        interest_enabled BOOLEAN NOT NULL DEFAULT false,
+        interest_rate DECIMAL(6,2) NOT NULL DEFAULT 0 CHECK (interest_rate >= 0),
+        interest_period VARCHAR(10) NOT NULL DEFAULT 'monthly' CHECK (interest_period IN ('daily', 'biweekly', 'monthly')),
+        start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        interest_stop_date DATE,
+        status VARCHAR(20) NOT NULL DEFAULT 'activa' CHECK (status IN ('activa', 'capital_pagado', 'pagada')),
+        deleted_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+
+    const createDebtPaymentsTable = `
+      CREATE TABLE IF NOT EXISTS debt_payments (
+        id SERIAL PRIMARY KEY,
+        debt_id INTEGER NOT NULL REFERENCES debts(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        amount DECIMAL(12,2) NOT NULL CHECK (amount > 0),
+        fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+        expense_id INTEGER REFERENCES expenses(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+
     const createIndexes = `
       CREATE INDEX IF NOT EXISTS idx_users_name ON users(name);
       CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
       CREATE INDEX IF NOT EXISTS idx_incomes_user_id ON incomes(user_id);
       CREATE INDEX IF NOT EXISTS idx_incomes_fecha ON incomes(fecha);
       CREATE INDEX IF NOT EXISTS idx_incomes_categoria ON incomes(categoria);
+      CREATE INDEX IF NOT EXISTS idx_expenses_user_id ON expenses(user_id);
+      CREATE INDEX IF NOT EXISTS idx_expenses_fecha ON expenses(fecha);
+      CREATE INDEX IF NOT EXISTS idx_expenses_categoria ON expenses(categoria);
+      CREATE INDEX IF NOT EXISTS idx_debts_user_id ON debts(user_id);
+      CREATE INDEX IF NOT EXISTS idx_debts_status ON debts(status);
+      CREATE INDEX IF NOT EXISTS idx_debt_payments_debt_id ON debt_payments(debt_id);
+      CREATE INDEX IF NOT EXISTS idx_debt_payments_user_id ON debt_payments(user_id);
     `;
 
     const updateTrigger = `
@@ -91,36 +144,61 @@ class DatabaseService {
 
       DO $$
       BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_trigger WHERE tgname = 'update_users_updated_at'
-        ) THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_users_updated_at') THEN
           CREATE TRIGGER update_users_updated_at
             BEFORE UPDATE ON users
             FOR EACH ROW
             EXECUTE FUNCTION update_updated_at_column();
         END IF;
-      END;
-      $$;
+      END $$;
 
       DO $$
       BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_trigger WHERE tgname = 'update_incomes_updated_at'
-        ) THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_incomes_updated_at') THEN
           CREATE TRIGGER update_incomes_updated_at
             BEFORE UPDATE ON incomes
             FOR EACH ROW
             EXECUTE FUNCTION update_updated_at_column();
         END IF;
-      END;
-      $$;
+      END $$;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_expenses_updated_at') THEN
+          CREATE TRIGGER update_expenses_updated_at
+            BEFORE UPDATE ON expenses
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column();
+        END IF;
+      END $$;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_debts_updated_at') THEN
+          CREATE TRIGGER update_debts_updated_at
+            BEFORE UPDATE ON debts
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column();
+        END IF;
+      END $$;
     `;
 
     try {
+      // El orden importa por las FKs:
+      //   1. users (no depende de nadie)
+      //   2. debts (depende de users)
+      //   3. expenses (depende de users y debts)
+      //   4. incomes (depende de users)
+      //   5. debt_payments (depende de debts, users, expenses)
       await this.pool!.query(createUsersTable);
+      await this.pool!.query(createDebtsTable);
+      await this.pool!.query(createExpensesTable);
       await this.pool!.query(createIncomesTable);
+      await this.pool!.query(createDebtPaymentsTable);
+
       await this.pool!.query(createIndexes);
       await this.pool!.query(updateTrigger);
+
       console.log('Tablas verificadas/creadas correctamente');
     } catch (error) {
       console.error('Error al crear tablas:', error);

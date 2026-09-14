@@ -1,0 +1,447 @@
+﻿<div class="deudas-page">
+
+  <!-- NAVBAR -->
+  <nav class="dash-nav">
+    <div class="nav-brand">
+      <img src="img/LogoTrasparente.png" alt="Logo" class="nav-logo-img" />
+      <span class="nav-brand-text">Gestor de Gastos</span>
+    </div>
+
+    <div class="nav-menu">
+      <ng-container *ngFor="let item of ['Home', 'Gastos', 'Ingresos', 'Deudas', 'Resumen']; let last = last">
+        <span
+          class="nav-item"
+          [class.active]="activeNav === item"
+[class.disabled]="item !== 'Home' && item !== 'Gastos' && item !== 'Ingresos' && item !== 'Deudas' && item !== 'Resumen'"          (click)="onNavClick(item)"
+        >{{ item }}</span>
+        <span class="nav-divider" *ngIf="!last"></span>
+      </ng-container>
+    </div>
+
+    <button class="nav-logout" (click)="onLogout()">
+      Cerrar<br/>Sesión
+    </button>
+  </nav>
+
+  <div class="load-error" *ngIf="loadError && !loading">{{ loadError }}</div>
+
+  <div class="page-loading" *ngIf="loading">
+    <div class="spinner"></div>
+    <span class="loading-text">Cargando deudas...</span>
+  </div>
+
+  <main class="deudas-main" [class.is-loading]="loading">
+
+    <!-- Hero -->
+    <div class="deudas-hero">
+      <div class="hero-shapes">
+        <span class="hero-shape hs-1"></span>
+        <span class="hero-shape hs-2"></span>
+        <span class="hero-shape hs-3"></span>
+      </div>
+      <div class="hero-content">
+        <div class="hero-text">
+          <h1 class="deudas-title">Deudas</h1>
+          <p class="deudas-subtitle">Controle sus deudas, intereses y pagos</p>
+        </div>
+        <button class="btn-new" (click)="openCreate()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Nueva deuda
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="deudas-summary">
+      <div class="summary-card">
+        <span class="sc-label">Total pendiente</span>
+        <span class="sc-value sc-red">{{ formatCurrency(totalPendiente) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="sc-label">Total pagado</span>
+        <span class="sc-value sc-green">{{ formatCurrency(totalPagado) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="sc-label">Intereses generados</span>
+        <span class="sc-value sc-orange">{{ formatCurrency(totalIntereses) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="sc-label">Deudas registradas</span>
+        <span class="sc-value">{{ cantidadDeudas }}</span>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filter-bar">
+      <div class="filter-status">
+        <button class="chip" [class.active]="statusFilter === ''" (click)="onFilterStatus('')">Todas</button>
+        <button class="chip" [class.active]="statusFilter === 'activa'" (click)="onFilterStatus('activa')">Activas</button>
+        <button class="chip" [class.active]="statusFilter === 'capital_pagado'" (click)="onFilterStatus('capital_pagado')">Capital pagado</button>
+        <button class="chip" [class.active]="statusFilter === 'pagada'" (click)="onFilterStatus('pagada')">Pagadas</button>
+      </div>
+      <div class="filter-right">
+        <div class="toolbar-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            type="text"
+            placeholder="Buscar deuda o acreedor..."
+            class="search-input"
+            [(ngModel)]="searchTerm"
+            (ngModelChange)="onSearch()"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Cards -->
+    <div class="cards-grid">
+      <div class="debt-card" *ngFor="let deuda of filteredDebts">
+
+        <div class="card-head">
+          <div class="card-title-wrap">
+            <h3 class="card-title">{{ deuda.name }}</h3>
+            <span
+              class="status-badge"
+              [class.sb-activa]="deuda.status === 'activa'"
+              [class.sb-capital]="deuda.status === 'capital_pagado'"
+              [class.sb-pagada]="deuda.status === 'pagada'"
+            >{{ statusLabel(deuda.status) }}</span>
+          </div>
+          <p class="card-creditor">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            {{ deuda.creditor }}
+          </p>
+        </div>
+
+        <div class="progress-block">
+          <div class="progress-header">
+            <span class="progress-pct">{{ deuda.percentage }}%</span>
+            <span class="progress-time">{{ elapsedLabel(deuda) }}</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" [style.width]="progressWidth(deuda)"></div>
+          </div>
+          <div class="progress-legend">
+            <span class="pl-paid">Pagado: {{ formatCurrency(deuda.total_paid) }}</span>
+            <span class="pl-current">Total: {{ formatCurrency(deuda.total_current) }}</span>
+          </div>
+        </div>
+
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">Monto original</span>
+            <span class="info-value">{{ formatCurrency(deuda.original_amount) }}</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Capital pendiente</span>
+            <span class="info-value">{{ formatCurrency(deuda.capital_pending) }}</span>
+          </div>
+          <div class="info-item" [class.info-highlight-orange]="deuda.interest_generated > 0">
+            <span class="info-label">Intereses generados</span>
+            <span class="info-value">{{ formatCurrency(deuda.interest_generated) }}</span>
+          </div>
+          <div class="info-item info-total">
+            <span class="info-label">Total pendiente</span>
+            <span class="info-value">{{ formatCurrency(deuda.total_pending) }}</span>
+          </div>
+        </div>
+
+        <div class="card-meta">
+          <span class="meta-item">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            Inicio: {{ formatDate(deuda.start_date) }}
+          </span>
+          <span class="meta-item" *ngIf="deuda.interest_enabled">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="1" x2="12" y2="23"/>
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+            {{ interestInfo(deuda) }}
+          </span>
+          <span class="meta-item" *ngIf="!deuda.interest_enabled">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="8" y1="12" x2="16" y2="12"/>
+            </svg>
+            Sin intereses
+          </span>
+          <span class="meta-item" *ngIf="deuda.interest_enabled && deuda.interest_stop_date && deuda.status !== 'activa'">
+            Intereses detenidos el {{ formatDate(deuda.interest_stop_date) }}
+          </span>
+        </div>
+
+        <!-- Pagos -->
+        <div class="payments-block" *ngIf="deuda.payments.length > 0">
+          <button class="payments-toggle" (click)="togglePayments(deuda)">
+            <svg [class.rotated]="expandedDebtId === deuda.id" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+            <span>
+              {{ expandedDebtId === deuda.id ? 'Ocultar' : 'Ver' }} pagos
+              ({{ deuda.payments.length }})
+            </span>
+          </button>
+
+          <div class="payments-list" *ngIf="expandedDebtId === deuda.id">
+            <div class="payment-row" *ngFor="let p of deuda.payments">
+              <div class="pr-left">
+                <span class="pr-date">{{ formatDate(p.fecha) }}</span>
+                <span class="pr-expense" *ngIf="p.expense_id">Gasto #{{ p.expense_id }}</span>
+              </div>
+              <span class="pr-amount">{{ formatCurrency(p.amount) }}</span>
+              <button class="pr-edit" (click)="openEditPayment(deuda, p)" title="Editar pago">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                </svg>
+              </button>
+              <button class="pr-delete" (click)="onDeletePayment(deuda, p)" title="Eliminar pago">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <button class="action-btn action-pay" (click)="openPayment(deuda)" [disabled]="deuda.status === 'pagada'">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Pago
+          </button>
+          <button class="action-btn action-edit" (click)="openEdit(deuda)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+            </svg>
+            Editar
+          </button>
+          <button class="action-btn action-delete" (click)="requestDelete(deuda)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+            Eliminar
+          </button>
+        </div>
+      </div>
+
+      <div class="cards-empty" *ngIf="!filteredDebts.length">
+        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M9 20.5A2.5 2.5 0 0 1 11.5 18H21V9H11.5A2.5 2.5 0 0 1 9 6.5v5.5A2.5 2.5 0 0 1 11.5 12z"/>
+        </svg>
+        <span class="empty-text">No hay deudas para mostrar</span>
+        <span class="empty-sub">Presione "Nueva deuda" para comenzar.</span>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL CREAR / EDITAR DEUDA ==================== -->
+    <div class="modal-overlay" *ngIf="showModal" (click)="onCancel()">
+      <div class="modal" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h2 class="modal-title">{{ editingId ? 'Editar deuda' : 'Nueva deuda' }}</h2>
+          <button class="modal-close" (click)="onCancel()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Nombre de la deuda</label>
+            <input type="text" class="form-input" placeholder="Ej: Préstamo personal, Tarjeta de crédito..." [(ngModel)]="formName" [disabled]="saving" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Acreedor</label>
+            <input type="text" class="form-input" placeholder="Ej: Banco ABC, Familiar, Amigo..." [(ngModel)]="formCreditor" [disabled]="saving" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Monto original</label>
+            <div class="input-prefix">
+              <span class="prefix">Q</span>
+              <input type="number" step="0.01" min="0" class="form-input" placeholder="0.00" [(ngModel)]="formOriginal" [disabled]="saving" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Fecha de inicio de la deuda</label>
+            <input type="date" class="form-input" [(ngModel)]="formStartDate" [max]="hoy" [disabled]="saving" />
+          </div>
+
+          <div class="form-section-title">Intereses</div>
+          <div class="form-group form-toggle">
+            <label class="toggle-label">
+              <input type="checkbox" [(ngModel)]="formInterestEnabled" (ngModelChange)="onInterestToggle()" [disabled]="saving" />
+              <span class="toggle-text">¿Esta deuda genera intereses?</span>
+            </label>
+          </div>
+          <div class="form-interest-fields" *ngIf="formInterestEnabled">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Porcentaje de interés</label>
+                <div class="input-suffix">
+                  <input type="number" step="0.01" min="0" class="form-input" placeholder="0.00" [(ngModel)]="formInterestRate" [disabled]="saving" />
+                  <span class="suffix">%</span>
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Periodo del interés</label>
+                <select class="form-input form-select" [(ngModel)]="formInterestPeriod" [disabled]="saving">
+                  <option value="daily">Diario</option>
+                  <option value="biweekly">Quincenal</option>
+                  <option value="monthly">Mensual</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="form-error" *ngIf="formError">{{ formError }}</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" (click)="onCancel()" [disabled]="saving">Cancelar</button>
+          <button type="button" class="btn btn-primary" (click)="onSave()" [disabled]="saving">
+            <span class="btn-spinner" *ngIf="saving"></span>
+            {{ editingId ? 'Guardar cambios' : 'Crear deuda' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL REGISTRAR PAGO ==================== -->
+    <div class="modal-overlay" *ngIf="showPaymentModal" (click)="closePaymentModal()">
+      <div class="modal modal-sm" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h2 class="modal-title">Registrar pago</h2>
+          <button class="modal-close" (click)="closePaymentModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="payment-debt-info" *ngIf="paymentDebt">
+            <div class="pdi-row">
+              <span class="pdi-label">Deuda:</span>
+              <span class="pdi-value">{{ paymentDebt.name }}</span>
+            </div>
+            <div class="pdi-row">
+              <span class="pdi-label">Total pendiente hoy:</span>
+              <span class="pdi-value">{{ formatCurrency(paymentDebt.total_pending) }}</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Monto del pago</label>
+            <div class="input-prefix">
+              <span class="prefix">Q</span>
+              <input type="number" step="0.01" min="0.01" class="form-input" placeholder="0.00" [(ngModel)]="payMonto" [disabled]="saving" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Fecha del pago</label>
+            <input type="date" class="form-input" [(ngModel)]="payFecha" [max]="hoy" [min]="paymentDebt ? paymentDebt.start_date : ''" [disabled]="saving" />
+          </div>
+          <div class="form-error" *ngIf="payError">{{ payError }}</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" (click)="closePaymentModal()" [disabled]="saving">Cancelar</button>
+          <button type="button" class="btn btn-primary" (click)="onSubmitPayment()" [disabled]="saving || !payMonto || payMonto <= 0">
+            <span class="btn-spinner" *ngIf="saving"></span>
+            Confirmar pago
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL EDITAR PAGO ==================== -->
+    <div class="modal-overlay" *ngIf="showEditPaymentModal" (click)="closeEditPaymentModal()">
+      <div class="modal modal-sm" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h2 class="modal-title">Editar pago</h2>
+          <button class="modal-close" (click)="closeEditPaymentModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="payment-debt-info" *ngIf="editingPaymentDebt">
+            <div class="pdi-row">
+              <span class="pdi-label">Deuda:</span>
+              <span class="pdi-value">{{ editingPaymentDebt.name }}</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Monto del pago</label>
+            <div class="input-prefix">
+              <span class="prefix">Q</span>
+              <input type="number" step="0.01" min="0.01" class="form-input" placeholder="0.00" [(ngModel)]="editPayMonto" [disabled]="saving" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Fecha del pago</label>
+            <input type="date" class="form-input" [(ngModel)]="editPayFecha" [max]="hoy" [min]="editingPaymentDebt ? editingPaymentDebt.start_date : ''" [disabled]="saving" />
+          </div>
+          <div class="form-error" *ngIf="editPayError">{{ editPayError }}</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" (click)="closeEditPaymentModal()" [disabled]="saving">Cancelar</button>
+          <button type="button" class="btn btn-primary" (click)="onSubmitEditPayment()" [disabled]="saving || !editPayMonto || editPayMonto <= 0">
+            <span class="btn-spinner" *ngIf="saving"></span>
+            Guardar cambios
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL CONFIRMAR ELIMINACIÓN ==================== -->
+    <div class="modal-overlay" *ngIf="showDeleteModal" (click)="onCancelDelete()">
+      <div class="modal modal-sm modal-danger" (click)="$event.stopPropagation()">
+        <div class="modal-header">
+          <h2 class="modal-title">Eliminar deuda</h2>
+          <button class="modal-close" (click)="onCancelDelete()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="delete-warning" *ngIf="deleteTarget">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0L2.86 7.55a2 2 0 0 0 1.71 3h10.28"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <p>¿Eliminar definitivamente la deuda <strong>"{{ deleteTarget.name }}"</strong>?</p>
+            <p class="delete-note">
+              Esta acción <strong>borrará también todos los pagos y los gastos asociados</strong> (categoría Deudas). No se puede deshacer.
+            </p>
+          </div>
+          <div class="form-error" *ngIf="deleteError">{{ deleteError }}</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" (click)="onCancelDelete()" [disabled]="saving">Cancelar</button>
+          <button type="button" class="btn btn-danger" (click)="confirmDelete()" [disabled]="saving">
+            <span class="btn-spinner" *ngIf="saving"></span>
+            Eliminar deuda
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ==================== MODAL SESIÓN EXPIRADA ==================== -->
+<div class="session-expired-overlay" *ngIf="showSessionExpired">
+  <div class="session-expired-modal">
+    <div class="modal-icon">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--color-yellow-mustard)" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+    </div>
+    <h2>Sesión expirada</h2>
+    <p>Su sesión ha terminado por inactividad. Inicie sesión nuevamente para continuar.</p>
+    <button class="btn-accept" (click)="onAcceptSessionExpired()">Aceptar</button>
+  </div>
+</div>

@@ -2,23 +2,23 @@ import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { Subscription, finalize } from 'rxjs';
+import { Subscription, finalize, forkJoin, of, catchError } from 'rxjs';
 import { AuthService, User } from '../../services/auth.service';
-import { IncomeService } from '../../services/income.service';
-import { Income, IncomeCreate, INCOME_CATEGORIES } from '../../models/income.model';
+import { ExpenseService } from '../../services/expense.service';
+import { Expense, ExpenseCreate, EXPENSE_CATEGORIES } from '../../models/expense.model';
 
 type DateFilterMode = 'dia' | 'mes' | 'anio' | 'todo';
 
 @Component({
-  selector: 'app-ingresos',
+  selector: 'app-gastos',
   standalone: true,
   imports: [CommonModule, FormsModule],
-  templateUrl: './ingresos.html',
-  styleUrls: ['./ingresos.css'],
+  templateUrl: './gastos.html',
+  styleUrls: ['./gastos.css'],
 })
-export class IngresosComponent implements OnInit, OnDestroy {
+export class GastosComponent implements OnInit, OnDestroy {
   user: User | null = null;
-  activeNav = 'Ingresos';
+  activeNav = 'Gastos';
   showSessionExpired = false;
 
   loading = true;
@@ -26,10 +26,11 @@ export class IngresosComponent implements OnInit, OnDestroy {
   saving = false;
   formError = '';
 
-  ingresos: Income[] = [];
-  filteredIngresos: Income[] = [];
+  gastos: Expense[] = [];
+  filteredGastos: Expense[] = [];
   totalMes = 0;
-  cantidadIngresos = 0;
+  cantidadGastos = 0;
+  saldoDisponible = 0;
 
   dateFilter: DateFilterMode = 'mes';
   selectedDate: string = '';
@@ -38,6 +39,10 @@ export class IngresosComponent implements OnInit, OnDestroy {
 
   categoriasFiltro: string[] = [];
 
+  /** Categorías disponibles en el modal de crear/editar gasto.
+   *  NO incluye 'Deudas': esos gastos se crean desde el módulo de Deudas. */
+  categoriasFormulario: string[] = [];
+
   showModal = false;
   editingId: number | null = null;
 
@@ -45,40 +50,48 @@ export class IngresosComponent implements OnInit, OnDestroy {
   formDescripcion = '';
   formCategoria = '';
   formMonto: number | null = null;
+  formMontoOriginal = 0;
 
-  incomeCategories = INCOME_CATEGORIES;
-  /** Fecha máxima permitida en los calendarios (hoy, no se permite futuro) */
+  expenseCategories = EXPENSE_CATEGORIES;
+
   readonly hoy: string = (() => {
     const d = new Date();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
     return `${d.getFullYear()}-${mm}-${dd}`;
   })();
+
   private subscriptions: Subscription[] = [];
   private sessionSub?: Subscription;
 
   constructor(
     private authService: AuthService,
-    private incomeService: IncomeService,
+    private expenseService: ExpenseService,
     private router: Router,
     private cdr: ChangeDetectorRef
   ) {}
 
   async ngOnInit(): Promise<void> {
     this.user = this.authService.getUser();
-    this.categoriasFiltro = this.incomeService.getCategoriesList();
-    
+    this.categoriasFiltro = this.expenseService.getCategoriesList();
+
+    // El modal solo permite categorías normales. 'Deudas' queda reservada
+    // para el módulo de Deudas (registro de pagos).
+    this.categoriasFormulario = this.expenseService
+      .getCategoriesList()
+      .filter((c) => c !== 'Deudas');
+
     const hoy = new Date();
     this.selectedDate = this.formatDateForBackend(hoy);
     this.formFecha = this.selectedDate;
-    
+
     await this.authService.reloadConfig();
-    
+
     this.sessionSub = this.authService.sessionExpired$.subscribe(() => {
       this.showSessionExpired = true;
       this.cdr.detectChanges();
     });
-    
+
     this.loadData();
   }
 
@@ -100,37 +113,48 @@ export class IngresosComponent implements OnInit, OnDestroy {
 
     const { desde, hasta } = this.getDateRange();
 
-    console.log(`📅 Ingresos - Consultando desde ${desde} hasta ${hasta}`);
+    this.subscriptions.push(
+      forkJoin({
+        balance: this.expenseService
+          .getBalance()
+          .pipe(catchError(() => of({ balance: 0 }))),
+        gastos: this.expenseService.getAll({ fechaDesde: desde, fechaHasta: hasta }),
+      })
+        .pipe(
+          finalize(() => {
+            this.loading = false;
+            this.cdr.detectChanges();
+          })
+        )
+        .subscribe({
+          next: ({ balance, gastos }) => {
+            this.saldoDisponible =
+              typeof balance.balance === 'number'
+                ? balance.balance
+                : parseFloat(String(balance.balance)) || 0;
 
-    this.incomeService
-      .getAll({ fechaDesde: desde, fechaHasta: hasta })
-      .pipe(finalize(() => {
-        this.loading = false;
-        this.cdr.detectChanges();
-      }))
-      .subscribe({
-        next: (data) => {
-          this.ingresos = data.map(inc => ({
-            ...inc,
-            monto: typeof inc.monto === 'number' ? inc.monto : parseFloat(String(inc.monto)) || 0
-          }));
-          this.applyFilters();
-          this.calcularTotales();
-        },
-        error: (err) => {
-          console.error('Error al cargar ingresos:', err);
-          this.loadError = 'Error al cargar los datos. Intente nuevamente.';
-          this.ingresos = [];
-          this.filteredIngresos = [];
-          this.totalMes = 0;
-          this.cantidadIngresos = 0;
-        },
-      });
+            this.gastos = gastos.map(g => ({
+              ...g,
+              monto: typeof g.monto === 'number' ? g.monto : parseFloat(String(g.monto)) || 0,
+            }));
+
+            this.applyFilters();
+            this.calcularTotales();
+            this.cdr.detectChanges();
+          },
+          error: (err) => {
+            console.error('Error al cargar gastos:', err);
+            this.loadError = 'Error al cargar los datos. Intente nuevamente.';
+            this.gastos = [];
+            this.filteredGastos = [];
+            this.totalMes = 0;
+            this.cantidadGastos = 0;
+            this.cdr.detectChanges();
+          },
+        })
+    );
   }
 
-  /**
-   * Parsea una fecha "YYYY-MM-DD" como fecha LOCAL (no UTC).
-   */
   private parseDateLocal(dateStr: string): Date {
     if (!dateStr) return new Date();
     const parts = String(dateStr).split('T')[0].split('-');
@@ -178,30 +202,30 @@ export class IngresosComponent implements OnInit, OnDestroy {
   }
 
   applyFilters(): void {
-    let filtered = [...this.ingresos];
+    let filtered = [...this.gastos];
 
     if (this.selectedCategoria) {
-      filtered = filtered.filter(inc => inc.categoria === this.selectedCategoria);
+      filtered = filtered.filter(g => g.categoria === this.selectedCategoria);
     }
 
     if (this.searchTerm.trim()) {
       const term = this.searchTerm.trim().toLowerCase();
       filtered = filtered.filter(
-        inc =>
-          inc.descripcion.toLowerCase().includes(term) ||
-          inc.categoria.toLowerCase().includes(term)
+        g =>
+          g.descripcion.toLowerCase().includes(term) ||
+          g.categoria.toLowerCase().includes(term)
       );
     }
 
-    this.filteredIngresos = filtered;
+    this.filteredGastos = filtered;
   }
 
   calcularTotales(): void {
-    this.totalMes = this.filteredIngresos.reduce((sum, inc) => {
-      const monto = typeof inc.monto === 'number' ? inc.monto : parseFloat(String(inc.monto)) || 0;
+    this.totalMes = this.filteredGastos.reduce((sum, g) => {
+      const monto = typeof g.monto === 'number' ? g.monto : parseFloat(String(g.monto)) || 0;
       return sum + monto;
     }, 0);
-    this.cantidadIngresos = this.filteredIngresos.length;
+    this.cantidadGastos = this.filteredGastos.length;
   }
 
   onFilterChange(mode: DateFilterMode): void {
@@ -229,18 +253,30 @@ export class IngresosComponent implements OnInit, OnDestroy {
     const hoy = new Date();
     this.formFecha = this.formatDateForBackend(hoy);
     this.formDescripcion = '';
-    this.formCategoria = this.incomeCategories[0];
+    this.formCategoria = this.categoriasFormulario[0];
     this.formMonto = null;
+    this.formMontoOriginal = 0;
     this.formError = '';
     this.showModal = true;
   }
 
-  openEdit(income: Income): void {
-    this.editingId = income.id;
-    this.formFecha = income.fecha;
-    this.formDescripcion = income.descripcion;
-    this.formCategoria = income.categoria;
-    this.formMonto = income.monto;
+  openEdit(expense: Expense): void {
+    if (expense.debt_id) {
+      const ir = confirm(
+        'Este gasto corresponde a un pago de deuda. Solo puede modificarse desde el módulo de Deudas.\n\n¿Desea ir al módulo de Deudas?'
+      );
+      if (ir) {
+        this.router.navigate(['/deudas']);
+      }
+      return;
+    }
+
+    this.editingId = expense.id;
+    this.formFecha = expense.fecha;
+    this.formDescripcion = expense.descripcion;
+    this.formCategoria = expense.categoria;
+    this.formMonto = expense.monto;
+    this.formMontoOriginal = expense.monto;
     this.formError = '';
     this.showModal = true;
   }
@@ -260,15 +296,23 @@ export class IngresosComponent implements OnInit, OnDestroy {
       this.formError = 'Seleccione una categoría.';
       return;
     }
+    if (this.formCategoria === 'Deudas') {
+      this.formError = 'La categoría Deudas solo se gestiona desde el módulo de Deudas.';
+      return;
+    }
     if (!this.formMonto || this.formMonto <= 0) {
       this.formError = 'El monto debe ser mayor a 0.';
+      return;
+    }
+    if (this.formMonto > this.saldoDisponible + (this.editingId !== null ? this.formMontoOriginal : 0)) {
+      this.formError = `Saldo insuficiente. Solo puede gastar ${this.formatCurrency(this.saldoDisponible)} de su dinero total.`;
       return;
     }
 
     this.saving = true;
     this.formError = '';
 
-    const data: IncomeCreate = {
+    const data: ExpenseCreate = {
       fecha: this.formFecha,
       descripcion: this.formDescripcion.trim(),
       categoria: this.formCategoria,
@@ -277,16 +321,18 @@ export class IngresosComponent implements OnInit, OnDestroy {
 
     let request;
     if (this.editingId !== null) {
-      request = this.incomeService.update(this.editingId, data);
+      request = this.expenseService.update(this.editingId, data);
     } else {
-      request = this.incomeService.create(data);
+      request = this.expenseService.create(data);
     }
 
     request
-      .pipe(finalize(() => {
-        this.saving = false;
-        this.cdr.detectChanges();
-      }))
+      .pipe(
+        finalize(() => {
+          this.saving = false;
+          this.cdr.detectChanges();
+        })
+      )
       .subscribe({
         next: () => {
           this.showModal = false;
@@ -300,16 +346,16 @@ export class IngresosComponent implements OnInit, OnDestroy {
       });
   }
 
-  onDelete(income: Income): void {
-    if (!confirm(`¿Eliminar el ingreso "${income.descripcion}"?`)) return;
+  onDelete(expense: Expense): void {
+    if (!confirm(`¿Eliminar el gasto "${expense.descripcion}"?`)) return;
 
-    this.incomeService.delete(income.id).subscribe({
+    this.expenseService.delete(expense.id).subscribe({
       next: () => {
         this.loadData();
       },
       error: (err) => {
         console.error('Error al eliminar:', err);
-        this.loadError = err.error?.message || 'Error al eliminar el ingreso.';
+        this.loadError = 'Error al eliminar el gasto.';
       },
     });
   }
@@ -322,7 +368,6 @@ export class IngresosComponent implements OnInit, OnDestroy {
     this.showSessionExpired = false;
     this.authService.confirmSessionExpired();
   }
-
 onNavClick(item: string): void {
   if (item !== 'Home' && item !== 'Gastos' && item !== 'Ingresos' && item !== 'Deudas' && item !== 'Resumen') return;
 
@@ -330,8 +375,8 @@ onNavClick(item: string): void {
     this.router.navigate(['/app']);
     return;
   }
-  if (item === 'Gastos') {
-    this.router.navigate(['/gastos']);
+  if (item === 'Ingresos') {
+    this.router.navigate(['/ingresos']);
     return;
   }
   if (item === 'Deudas') {
@@ -342,10 +387,11 @@ onNavClick(item: string): void {
     this.router.navigate(['/resumen']);
     return;
   }
-  if (item === 'Ingresos') {
+  if (item === 'Gastos') {
     return; // ya estamos aquí
   }
 }
+
   formatCurrency(value: number): string {
     const num = typeof value === 'number' ? value : parseFloat(String(value)) || 0;
     return 'Q' + num.toFixed(2);
@@ -354,7 +400,6 @@ onNavClick(item: string): void {
   formatDate(dateStr: string): string {
     if (!dateStr) return 'Fecha no disponible';
     try {
-      // Parsear como fecha local para evitar desfase UTC
       const parts = String(dateStr).split('T')[0].split('-');
       let d: Date;
       if (parts.length >= 3) {
@@ -366,7 +411,7 @@ onNavClick(item: string): void {
       return d.toLocaleDateString('es-GT', {
         day: '2-digit',
         month: 'short',
-        year: 'numeric'
+        year: 'numeric',
       });
     } catch {
       return dateStr;
