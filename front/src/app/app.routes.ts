@@ -20,6 +20,24 @@ export const routes: Routes = [
       import('./pages/ingresos/ingresos').then((m) => m.IngresosComponent),
   },
   {
+    path: 'gastos',
+    canActivate: [AuthGuard],
+    loadComponent: () =>
+      import('./pages/gastos/gastos').then((m) => m.GastosComponent),
+  },
+  {
+    path: 'deudas',
+    canActivate: [AuthGuard],
+    loadComponent: () =>
+      import('./pages/deudas/deudas').then((m) => m.DeudasComponent),
+  },
+  {
+    path: 'resumen',
+    canActivate: [AuthGuard],
+    loadComponent: () =>
+      import('./pages/resumen/resumen').then((m) => m.ResumenComponent),
+  },
+  {
     path: '',
     redirectTo: 'app',
     pathMatch: 'full',
